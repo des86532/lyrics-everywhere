@@ -1,6 +1,6 @@
 import type {
-  PronunciationNotation,
-  PronunciationSegment,
+  BlendedSyllable,
+  PhoneticSystem,
   TranscriptionResult,
 } from "../domain/types.js";
 import type { LanguageTranscriber, TranscriptionRequest } from "./language-transcriber.js";
@@ -19,70 +19,77 @@ export function isKana(char: string): boolean {
   );
 }
 
-// Tier 1: 常用流行歌詞片語詞典
-export const JAPANESE_PHRASES: Record<string, string> = {
-  ありがとう: "阿里嘎多",
-  ありがとうございます: "阿里嘎多 勾雜以馬斯",
-  愛してる: "愛西貼路",
-  あいしてる: "愛西貼路",
-  さようなら: "撒優哪拉",
-  おはよう: "歐嗨唷",
-  こんにちは: "空尼基哇",
-  だいじょうぶ: "帶究補",
-  大丈夫: "帶究補",
-  すごい: "斯勾以",
-  かわいい: "卡哇伊",
-  カワイイ: "卡哇伊",
-  ずっと: "組透",
-  いつも: "伊次摸",
+// Tier 1: 常用片語
+export const JAPANESE_PHRASES: Record<string, { chinese: string; bopomofo: string; romanization: string }> = {
+  ありがとう: { chinese: "阿里嘎多", bopomofo: "ㄚ ㄌㄧ ㄍㄚ ㄉㄨㄛ", romanization: "arigatou" },
+  愛してる: { chinese: "愛西貼路", bopomofo: "ㄞ ㄒㄧ ㄊㄧㄝ ㄌㄨ", romanization: "aishiteru" },
+  さようなら: { chinese: "撒優哪拉", bopomofo: "ㄙㄚ ㄧㄡ ㄋㄚ ㄌㄚ", romanization: "sayounara" },
+  おはよう: { chinese: "歐嗨唷", bopomofo: "ㄡ ㄏㄞ ㄧㄛ", romanization: "ohayou" },
+  こんにちは: { chinese: "空尼基哇", bopomofo: "ㄎㄨㄥ ㄋㄧ ㄐㄧ ㄨㄚ", romanization: "konnichiwa" },
+  だいじょうぶ: { chinese: "帶究補", bopomofo: "ㄉㄞ ㄐㄧㄡ ㄅㄨ", romanization: "daijoubu" },
+  大丈夫: { chinese: "帶究補", bopomofo: "ㄉㄞ ㄐㄧㄡ ㄅㄨ", romanization: "daijoubu" },
+  すごい: { chinese: "斯勾以", bopomofo: "ㄙ ㄍㄡ ㄧ", romanization: "sugoi" },
+  かわいい: { chinese: "卡哇伊", bopomofo: "ㄎㄚ ㄨㄚ ㄧ", romanization: "kawaii" },
 };
 
-const SORTED_JAPANESE_PHRASES = Object.keys(JAPANESE_PHRASES).sort(
-  (a, b) => b.length - a.length
-);
+const SORTED_JA_KEYS = Object.keys(JAPANESE_PHRASES).sort((a, b) => b.length - a.length);
 
-// Tier 2: 五十音對應中文字諧音
-const KANA_TO_CHINESE: Record<string, string> = {
-  あ: "啊", い: "伊", う: "屋", え: "欸", お: "歐",
-  ア: "啊", イ: "伊", ウ: "屋", エ: "欸", オ: "歐",
-  か: "卡", き: "奇", く: "庫", け: "凱", こ: "口",
-  カ: "卡", キ: "奇", ク: "庫", ケ: "凱", コ: "口",
-  さ: "撒", し: "西", す: "斯", せ: "些", そ: "索",
-  サ: "撒", シ: "西", ス: "斯", セ: "些", ソ: "索",
-  た: "塔", ち: "七", つ: "次", て: "貼", と: "透",
-  タ: "塔", チ: "七", ツ: "次", テ: "貼", ト: "透",
-  な: "哪", に: "尼", ぬ: "奴", ね: "捏", の: "諾",
-  ナ: "哪", ニ: "尼", ヌ: "奴", ネ: "捏", ノ: "諾",
-  は: "哈", ひ: "西", ふ: "呼", へ: "黑", ほ: "後",
-  ハ: "哈", ヒ: "西", フ: "呼", ヘ: "黑", ホ: "後",
-  ま: "媽", み: "米", む: "木", め: "妹", も: "摸",
-  マ: "媽", ミ: "米", ム: "木", メ: "妹", モ: "摸",
-  や: "亞", ゆ: "優", よ: "唷",
-  ヤ: "亞", ユ: "優", ヨ: "唷",
-  ら: "拉", り: "哩", る: "路", れ: "雷", ろ: "羅",
-  ラ: "拉", リ: "哩", ル: "路", レ: "雷", ロ: "羅",
-  わ: "哇", を: "窩", ん: "嗯",
-  ワ: "哇", ヲ: "窩", ン: "嗯",
-  が: "嘎", ぎ: "吉", ぐ: "古", げ: "給", ご: "果",
-  ガ: "嘎", ギ: "吉", グ: "古", ゲ: "給", ゴ: "果",
-  ざ: "雜", じ: "幾", ず: "茲", ぜ: "賊", ぞ: "佐",
-  ザ: "雜", ジ: "幾", ズ: "茲", ゼ: "賊", ゾ: "佐",
-  だ: "達", ぢ: "吉", づ: "茲", で: "得", ど: "多",
-  ダ: "達", ヂ: "吉", ヅ: "茲", デ: "得", ド: "多",
-  ば: "巴", び: "比", ぶ: "布", べ: "杯", ぼ: "波",
-  バ: "巴", ビ: "比", ブ: "布", ベ: "杯", ボ: "波",
-  ぱ: "怕", ぴ: "皮", ぷ: "普", ぺ: "配", ぽ: "剖",
-  パ: "怕", ピ: "皮", プ: "普", ペ: "配", ポ: "剖",
+const KANA_MAP: Record<string, { chinese: string; bopomofo: string; romanization: string }> = {
+  あ: { chinese: "啊", bopomofo: "ㄚ", romanization: "a" },
+  い: { chinese: "伊", bopomofo: "ㄧ", romanization: "i" },
+  う: { chinese: "屋", bopomofo: "ㄨ", romanization: "u" },
+  え: { chinese: "欸", bopomofo: "ㄝ", romanization: "e" },
+  お: { chinese: "歐", bopomofo: "ㄛ", romanization: "o" },
+  か: { chinese: "卡", bopomofo: "ㄎㄚ", romanization: "ka" },
+  き: { chinese: "奇", bopomofo: "ㄑㄧ", romanization: "ki" },
+  く: { chinese: "庫", bopomofo: "ㄎㄨ", romanization: "ku" },
+  け: { chinese: "凱", bopomofo: "ㄎㄞ", romanization: "ke" },
+  こ: { chinese: "口", bopomofo: "ㄎㄡ", romanization: "ko" },
+  さ: { chinese: "撒", bopomofo: "ㄙㄚ", romanization: "sa" },
+  し: { chinese: "西", bopomofo: "ㄒㄧ", romanization: "shi" },
+  す: { chinese: "斯", bopomofo: "ㄙ", romanization: "su" },
+  せ: { chinese: "些", bopomofo: "ㄙㄝ", romanization: "se" },
+  そ: { chinese: "索", bopomofo: "ㄙㄨㄛ", romanization: "so" },
+  た: { chinese: "塔", bopomofo: "ㄊㄚ", romanization: "ta" },
+  ち: { chinese: "七", bopomofo: "ㄑㄧ", romanization: "chi" },
+  つ: { chinese: "次", bopomofo: "ㄘ", romanization: "tsu" },
+  て: { chinese: "貼", bopomofo: "ㄊㄧㄝ", romanization: "te" },
+  と: { chinese: "透", bopomofo: "ㄊㄡ", romanization: "to" },
+  な: { chinese: "哪", bopomofo: "ㄋㄚ", romanization: "na" },
+  に: { chinese: "尼", bopomofo: "ㄋㄧ", romanization: "ni" },
+  ぬ: { chinese: "奴", bopomofo: "ㄋㄨ", romanization: "nu" },
+  ね: { chinese: "捏", bopomofo: "ㄋㄧㄝ", romanization: "ne" },
+  の: { chinese: "諾", bopomofo: "ㄋㄨㄛ", romanization: "no" },
+  は: { chinese: "哈", bopomofo: "ㄏㄚ", romanization: "ha" },
+  ひ: { chinese: "西", bopomofo: "ㄒㄧ", romanization: "hi" },
+  ふ: { chinese: "呼", bopomofo: "ㄏㄨ", romanization: "fu" },
+  へ: { chinese: "黑", bopomofo: "ㄏㄟ", romanization: "he" },
+  ほ: { chinese: "後", bopomofo: "ㄏㄡ", romanization: "ho" },
+  ま: { chinese: "媽", bopomofo: "ㄇㄚ", romanization: "ma" },
+  み: { chinese: "米", bopomofo: "ㄇㄧ", romanization: "mi" },
+  む: { chinese: "木", bopomofo: "ㄇㄨ", romanization: "mu" },
+  め: { chinese: "妹", bopomofo: "ㄇㄟ", romanization: "me" },
+  も: { chinese: "摸", bopomofo: "ㄇㄛ", romanization: "mo" },
+  や: { chinese: "亞", bopomofo: "ㄧㄚ", romanization: "ya" },
+  ゆ: { chinese: "優", bopomofo: "ㄧㄡ", romanization: "yu" },
+  よ: { chinese: "唷", bopomofo: "ㄧㄛ", romanization: "yo" },
+  ら: { chinese: "拉", bopomofo: "ㄌㄚ", romanization: "ra" },
+  り: { chinese: "哩", bopomofo: "ㄌㄧ", romanization: "ri" },
+  る: { chinese: "路", bopomofo: "ㄌㄨ", romanization: "ru" },
+  れ: { chinese: "雷", bopomofo: "ㄌㄟ", romanization: "re" },
+  ろ: { chinese: "羅", bopomofo: "ㄌㄨㄛ", romanization: "ro" },
+  わ: { chinese: "哇", bopomofo: "ㄨㄚ", romanization: "wa" },
+  を: { chinese: "窩", bopomofo: "ㄨㄛ", romanization: "wo" },
+  ん: { chinese: "嗯", bopomofo: "ㄣ", romanization: "n" },
 };
 
 export class JapaneseTranscriber implements LanguageTranscriber {
   readonly id = "japanese-transcriber";
   readonly languages = ["ja", "japanese"] as const;
-  readonly supportedNotations: readonly PronunciationNotation[] = [
-    "chinese_homophone",
-    "kana",
-    "romanization",
-    "hybrid",
+  readonly supportedSystems: readonly PhoneticSystem[] = [
+    "chinese",
+    "bopomofo",
+    "latin",
   ];
 
   canHandle(input: { text: string; language?: string }): boolean {
@@ -98,61 +105,94 @@ export class JapaneseTranscriber implements LanguageTranscriber {
 
   transcribe(request: TranscriptionRequest): TranscriptionResult {
     const text = request.text;
-    const segments: PronunciationSegment[] = [];
+    const systems = request.allowedSystems.length > 0 ? request.allowedSystems : (["chinese", "latin"] as PhoneticSystem[]);
+    const syllables: BlendedSyllable[] = [];
     const displayParts: string[] = [];
 
     let cursor = 0;
-    let segId = 0;
 
-    // Longest-match 片語比對
     while (cursor < text.length) {
-      let matchedPhrase: string | null = null;
-      let matchedHomophone: string | null = null;
-
-      for (const phrase of SORTED_JAPANESE_PHRASES) {
-        if (text.startsWith(phrase, cursor)) {
-          matchedPhrase = phrase;
-          matchedHomophone = JAPANESE_PHRASES[phrase]!;
+      let matchedKey: string | null = null;
+      for (const key of SORTED_JA_KEYS) {
+        if (text.startsWith(key, cursor)) {
+          matchedKey = key;
           break;
         }
       }
 
-      if (matchedPhrase && matchedHomophone) {
-        displayParts.push(matchedHomophone);
-        segments.push({
-          segmentId: `seg-ja-${++segId}`,
-          sourceText: matchedPhrase,
-          phonemes: [matchedHomophone],
-          display: matchedHomophone,
+      if (matchedKey) {
+        const entry = JAPANESE_PHRASES[matchedKey]!;
+        let phraseText = entry.chinese;
+        if (!systems.includes("chinese")) {
+          if (systems.includes("bopomofo")) phraseText = entry.bopomofo;
+          else if (systems.includes("latin")) phraseText = entry.romanization;
+        }
+
+        displayParts.push(phraseText);
+        syllables.push({
+          sourceText: matchedKey,
+          onset: "",
+          nucleus: "",
+          fragments: [
+            {
+              system: systems.includes("chinese") ? "chinese" : systems[0] || "chinese",
+              role: "base",
+              text: phraseText,
+              phonemes: [phraseText],
+            },
+          ],
+          displayText: phraseText,
           tier: "phrase",
         });
-        cursor += matchedPhrase.length;
+        cursor += matchedKey.length;
         continue;
       }
 
       const char = text[cursor]!;
       if (!isKana(char)) {
         displayParts.push(char);
-        segments.push({
-          segmentId: `seg-ja-${++segId}`,
+        syllables.push({
           sourceText: char,
-          phonemes: [char],
-          display: char,
+          onset: "",
+          nucleus: "",
+          fragments: [
+            {
+              system: systems[0] || "chinese",
+              role: "base",
+              text: char,
+              phonemes: [char],
+            },
+          ],
+          displayText: char,
           tier: "passthrough",
         });
         cursor++;
         continue;
       }
 
-      const homophone = KANA_TO_CHINESE[char];
-      const val = homophone || char;
-      displayParts.push(val);
-      segments.push({
-        segmentId: `seg-ja-${++segId}`,
+      const entry = KANA_MAP[char];
+      let kanaText = char;
+      if (entry) {
+        if (systems.includes("chinese")) kanaText = entry.chinese;
+        else if (systems.includes("bopomofo")) kanaText = entry.bopomofo;
+        else if (systems.includes("latin")) kanaText = entry.romanization;
+      }
+
+      displayParts.push(kanaText);
+      syllables.push({
         sourceText: char,
-        phonemes: [val],
-        display: val,
-        tier: homophone ? "syllable" : "fallback",
+        onset: "",
+        nucleus: "",
+        fragments: [
+          {
+            system: systems.includes("chinese") ? "chinese" : systems[0] || "chinese",
+            role: "base",
+            text: kanaText,
+            phonemes: [kanaText],
+          },
+        ],
+        displayText: kanaText,
+        tier: entry ? "syllable" : "fallback",
       });
       cursor++;
     }
@@ -160,17 +200,10 @@ export class JapaneseTranscriber implements LanguageTranscriber {
     const displayText = displayParts.join("").replace(/\s+/g, " ").trim();
     return {
       sourceText: text,
-      requestedNotation: request.notation,
       detectedLanguage: "ja",
+      allowedSystems: systems,
       displayText,
-      layers: [
-        {
-          notation: "chinese_homophone",
-          displayText,
-          segments,
-        },
-      ],
-      segments,
+      syllables,
     };
   }
 }

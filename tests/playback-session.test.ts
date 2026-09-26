@@ -4,7 +4,7 @@ import { LrclibClient } from "../src/lyrics/lrclib-client.js";
 import { PlaybackSession } from "../src/session/playback-session.js";
 import type { TrackMetadata } from "../src/domain/types.js";
 
-describe("PlaybackSession Orchestrator", () => {
+describe("PlaybackSession Orchestrator & Full Lyrics Sheet", () => {
   const track1: TrackMetadata = {
     trackKey: "spotify:track1",
     source: { connector: "mock" },
@@ -20,7 +20,7 @@ describe("PlaybackSession Orchestrator", () => {
 [00:30.00]더 보고 싶다
   `;
 
-  it("identifies current, previous, and next lines with Chinese homophones by default", async () => {
+  it("pre-loads full lyrics sheet and highlights current line with blended homophones", async () => {
     const mockConnector = new MockConnector(track1);
     const mockFetch = async () =>
       new Response(JSON.stringify({ syncedLyrics: sampleLrc, duration: 270 }));
@@ -32,17 +32,25 @@ describe("PlaybackSession Orchestrator", () => {
     await session.tick();
     await new Promise((r) => setTimeout(r, 50));
 
+    // 1. 驗證全篇歌譜已完整預載
+    const fullSheet = session.getFullSheet();
+    expect(fullSheet).toBeDefined();
+    expect(fullSheet?.status).toBe("ready");
+    expect(fullSheet?.lines.length).toBe(4);
+    expect(fullSheet?.lines[1]?.originalText).toBe("보고 싶다");
+    expect(fullSheet?.lines[1]?.pronunciation?.displayText).toContain("剖勾 喜打");
+
+    // 2. 時間推移至 15000ms (15秒) -> 應該高亮第 1 行 (0-indexed: [00:10.00] "보고 싶다")
     mockConnector.seek(15000);
     const display = await session.tick();
 
+    expect(display.currentLineIndex).toBe(1);
     expect(display.currentLine?.originalText).toBe("보고 싶다");
     expect(display.currentLine?.pronunciation?.displayText).toContain("剖勾 喜打");
-    expect(display.previousLine?.originalText).toBe("Intro");
-    expect(display.nextLine?.originalText).toBe("이렇게 말하니까");
     expect(display.isPlaying).toBe(true);
   });
 
-  it("supports dynamic switching between Chinese homophone, Bopomofo, and Hybrid modes", async () => {
+  it("re-annotates full sheet dynamically when allowedSystems change", async () => {
     const mockConnector = new MockConnector(track1);
     const mockFetch = async () =>
       new Response(JSON.stringify({ syncedLyrics: sampleLrc, duration: 270 }));
@@ -55,20 +63,15 @@ describe("PlaybackSession Orchestrator", () => {
     await session.tick();
     await new Promise((r) => setTimeout(r, 50));
 
-    // 1. 預設是 chinese_homophone
-    let display = session.computeDisplay();
-    expect(display.currentLine?.pronunciation?.displayText).toContain("剖勾 喜打");
+    // 1. 切換至純注音
+    session.updateProfile({ allowedSystems: ["bopomofo"] });
+    let sheet = session.getFullSheet();
+    expect(sheet?.lines[1]?.pronunciation?.displayText).toContain("ㄅㄛ");
 
-    // 2. 切換至純注音
-    session.updateProfile({ notation: "bopomofo" });
-    display = session.computeDisplay();
-    expect(display.currentLine?.pronunciation?.displayText).toContain("ㄅㄛ");
-
-    // 3. 切換至 hybrid 雙排模式
-    session.updateProfile({ notation: "hybrid" });
-    display = session.computeDisplay();
-    expect(display.currentLine?.pronunciation?.displayText).toContain("剖勾 喜打");
-    expect(display.currentLine?.pronunciation?.secondaryDisplayText).toContain("ㄅㄛ");
+    // 2. 切換至中文 + 英文
+    session.updateProfile({ allowedSystems: ["chinese", "latin"] });
+    sheet = session.getFullSheet();
+    expect(sheet?.lines[1]?.pronunciation?.displayText).toContain("剖勾 喜打");
   });
 
   it("guards against stale lyric responses when switching tracks rapidly", async () => {
@@ -100,6 +103,6 @@ describe("PlaybackSession Orchestrator", () => {
     await new Promise((r) => setTimeout(r, 50));
 
     expect(session.getCurrentTrack()?.title).toBe("Dynamite");
-    expect(session.getAnnotations().length).toBe(0);
+    expect(session.getFullSheet()?.lines.length).toBe(0);
   });
 });

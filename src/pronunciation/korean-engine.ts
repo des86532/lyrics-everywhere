@@ -1,4 +1,11 @@
-import type { PronunciationSegment } from "../domain/types.js";
+import type {
+  BlendedSyllable,
+  PhoneticSystem,
+} from "../domain/types.js";
+import {
+  synthesizeBlendedSyllable,
+  type SurfaceSyllable,
+} from "./blended-homophone.js";
 
 // 1. Hangul Unicode Constants
 export const HANGUL_BASE = 0xac00;
@@ -76,7 +83,6 @@ export function applyKoreanPhonology(text: string): DecomposedHangul[] {
     if (curr.jong === "ㅎ" || curr.jong === "ㄶ" || curr.jong === "ㅀ") {
       if (next && next.isHangul) {
         if (next.cho === "ㅇ") {
-          // ㅎ-elision: 좋아 -> 조아, 넣어 -> 너어
           if (curr.jong === "ㅎ") curr.jong = "";
           else if (curr.jong === "ㄶ") { curr.jong = ""; next.cho = "ㄴ"; }
           else if (curr.jong === "ㅀ") { curr.jong = ""; next.cho = "ㄹ"; }
@@ -157,272 +163,144 @@ function getNeutralCoda(jong: string): string {
   return jong;
 }
 
-// 3. 台灣注音對照表 (Bopomofo Mappings)
-const CHO_TO_BOPOMOFO: Record<string, string> = {
-  ㄱ: "ㄍ", ㄲ: "ㄍ", ㄴ: "ㄋ", ㄷ: "ㄉ", ㄸ: "ㄉ",
-  ㄹ: "ㄌ", ㅁ: "ㄇ", ㅂ: "ㄅ", ㅃ: "ㄅ", ㅅ: "ㄙ",
-  ㅆ: "ㄙ", ㅇ: "", ㅈ: "ㄗ", ㅉ: "ㄗ", ㅊ: "ㄘ",
-  ㅋ: "ㄎ", ㅌ: "ㄊ", ㅍ: "ㄆ", ㅎ: "ㄏ",
-};
-
-const JUNG_TO_BOPOMOFO: Record<string, string> = {
-  ㅏ: "ㄚ", ㅐ: "ㄝ", ㅑ: "ㄧㄚ", ㅒ: "ㄧㄝ", ㅓ: "ㄛ",
-  ㅔ: "ㄝ", ㅕ: "ㄧㄛ", ㅖ: "ㄧㄝ", ㅗ: "ㄛ", ㅘ: "ㄨㄚ",
-  ㅙ: "ㄨㄝ", ㅚ: "ㄨㄝ", ㅛ: "ㄧㄛ", ㅜ: "ㄨ", ㅝ: "ㄨㄛ",
-  ㅞ: "ㄨㄝ", ㅟ: "ㄨㄧ", ㅠ: "ㄧㄨ", ㅡ: "ㄜ", ㅢ: "ㄜㄧ", ㅣ: "ㄧ",
-};
-
-const JONG_TO_BOPOMOFO: Record<string, string> = {
-  ㄱ: "ㄍ˙", ㄲ: "ㄍ˙", ㄴ: "ㄣ", ㄷ: "ㄉ˙", ㄹ: "ㄌ",
-  ㅁ: "ㄇ", ㅂ: "ㄅ˙", ㅅ: "ㄉ˙", ㅆ: "ㄉ˙", ㅇ: "ㄥ",
-  ㅈ: "ㄉ˙", ㅊ: "ㄉ˙", ㅋ: "ㄍ˙", ㅌ: "ㄉ˙", ㅍ: "ㄅ˙", ㅎ: "",
-};
-
-// 4. 韓語轉中文字諧音 (Chinese Homophones / 空耳)
-// Tier 1: 常用流行歌詞片語詞典
-export const KOREAN_CHINESE_PHRASES: Record<string, string> = {
-  사랑해: "撒浪嘿",
-  사랑해요: "撒浪嘿呦",
-  너를: "呢樂",
-  너를사랑해: "呢樂 撒浪嘿",
-  보고싶다: "剖勾 喜打",
-  "보고 싶다": "剖勾 喜打",
-  보고싶어: "剖勾 喜剖",
-  "보고 싶어": "剖勾 喜剖",
-  오빠: "歐巴",
-  감사합니다: "康桑哈米達",
-  미안해: "米安嘿",
-  안녕: "安妞",
-  괜찮아: "快差納",
-  가지마: "卡基馬",
-  어떻게: "歐透給",
-  진짜: "緊甲",
-  좋아해: "秋阿嘿",
-  행복해: "幸波客",
-  영원히: "永遠尼",
-  친구: "親故",
-};
-
-// 依片語長度降序排序，確保 Longest-match
-const SORTED_KOREAN_PHRASES = Object.keys(KOREAN_CHINESE_PHRASES).sort(
-  (a, b) => b.length - a.length
-);
-
-// Tier 2: 常用音節表 (初聲+中聲對應中文字)
-const SYLLABLE_TO_CHINESE: Record<string, string> = {
-  // ㄱ
-  가: "卡", 갸: "佳", 거: "格", 겨: "覺", 고: "高", 교: "橋", 구: "古", 규: "規", 그: "克", 기: "基",
-  개: "凱", 게: "給", 과: "誇", 궈: "果", 귀: "貴",
-  // ㄴ
-  나: "哪", 냐: "娘", 너: "呢", 녀: "年", 노: "諾", 뇨: "鳥", 누: "奴", 뉴: "紐", 느: "訥", 니: "尼",
-  내: "奈", 네: "內", 놔: "諾",
-  // ㄷ
-  다: "達", 댜: "嗲", 더: "德", 뎌: "點", 도: "多", 됴: "挑", 두: "杜", 듀: "丟", 드: "特", 디: "迪",
-  대: "代", 데: "得", 돼: "對",
-  // ㄹ
-  라: "拉", 랴: "良", 러: "勒", 려: "聯", 로: "羅", 료: "料", 루: "路", 류: "流", 르: "勒", 리: "哩",
-  래: "來", 레: "雷",
-  // ㅁ
-  마: "馬", 먀: "苗", 머: "麼", 며: "免", 모: "莫", 묘: "妙", 무: "木", 뮤: "繆", 므: "默", 미: "米",
-  매: "梅", 메: "妹", 뭐: "麼",
-  // ㅂ
-  바: "巴", 뱌: "變", 버: "伯", 벼: "別", 보: "波", 뵤: "標", 부: "布", 뷰: "標", 브: "不", 비: "比",
-  배: "白", 베: "杯",
-  // ㅅ
-  사: "撒", 샤: "夏", 서: "色", 셔: "寫", 소: "索", 쇼: "秀", 수: "蘇", 슈: "修", 스: "斯", 시: "西",
-  새: "塞", 세: "些",
-  // ㅇ
-  아: "阿", 야: "亞", 어: "俄", 여: "葉", 오: "歐", 요: "優", 우: "烏", 유: "悠", 으: "額", 이: "伊",
-  애: "愛", 에: "欸", 왜: "歪", 웨: "衛", 위: "威", 의: "依",
-  // ㅈ
-  자: "扎", 쟈: "嘉", 저: "澤", 져: "節", 조: "佐", 죠: "照", 주: "朱", 쥬: "主", 즈: "茲", 지: "吉",
-  재: "在", 제: "傑",
-  // ㅊ
-  差: "差", 챠: "恰", 처: "徹", 쳐: "切", 초: "超", 쵸: "俏", 추: "初", 츄: "秋", 츠: "茨", 치: "七",
-  채: "彩", 체: "徹",
-  // ㅋ
-  카: "卡", 캬: "卡", 커: "科", 켜: "科", 코: "闊", 쿄: "扣", 쿠: "庫", 큐: "丘", 크: "克", 키: "琪",
-  캐: "開", 케: "凱",
-  // ㅌ
-  타: "塔", 탸: "塔", 터: "特", 텨: "鐵", 토: "透", 툐: "跳", 투: "兔", 튜: "圖", 트: "特", 티: "踢",
-  태: "太", 테: "特",
-  // ㅍ
-  파: "帕", 퍄: "漂", 퍼: "頗", 펴: "漂", 포: "坡", 표: "飄", 푸: "鋪", 퓨: "飄", 프: "普", 피: "皮",
-  패: "派", 페: "配",
-  // ㅎ
-  하: "哈", 햐: "夏", 허: "賀", 혀: "協", 호: "浩", 효: "孝", 후: "呼", 휴: "休", 흐: "黑", 히: "希",
-  해: "嘿", 헤: "黑", 화: "華",
-};
-
-const CODA_SYLLABLES_TO_CHINESE: Record<string, string> = {
-  랑: "朗", 탕: "湯", 강: "康", 당: "當", 망: "忙", 방: "邦", 상: "桑", 창: "昌", 양: "洋",
-  난: "難", 만: "滿", 반: "班", 산: "山", 안: "安", 단: "單", 간: "甘", 선: "善", 련: "聯",
-  남: "南", 담: "丹", 밤: "凡", 감: "甘", 삼: "三", 암: "暗",
-  달: "達", 말: "末", 발: "拔", 살: "薩", 알: "阿爾",
-  할: "哈爾", 날: "哪爾", 를: "樂",
-};
-
-export function koreanToBopomofo(text: string): { displayText: string; segments: PronunciationSegment[] } {
-  const items = applyKoreanPhonology(text);
-  const segments: PronunciationSegment[] = [];
-  const displayParts: string[] = [];
-
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i];
-    if (!item) continue;
-
-    if (!item.isHangul) {
-      displayParts.push(item.char);
-      segments.push({
-        segmentId: `seg-${i}`,
-        sourceText: item.char,
-        phonemes: [item.char],
-        display: item.char,
-        tier: "passthrough",
-      });
-      continue;
-    }
-
-    let choBp = CHO_TO_BOPOMOFO[item.cho] || "";
-    let jungBp = JUNG_TO_BOPOMOFO[item.jung] || "ㄚ";
-    let jongBp = JONG_TO_BOPOMOFO[item.jong] || "";
-
-    if (jungBp.startsWith("ㄧ")) {
-      if (choBp === "ㄙ") choBp = "ㄒ";
-      else if (choBp === "ㄗ") choBp = "ㄐ";
-      else if (choBp === "ㄘ") choBp = "ㄑ";
-    }
-
-    if (jungBp === "ㄚ" && jongBp === "ㄥ") {
-      jungBp = "ㄤ";
-      jongBp = "";
-    } else if (jungBp === "ㄛ" && jongBp === "ㄥ") {
-      jungBp = "ㄨㄥ";
-      jongBp = "";
-    } else if (jungBp === "ㄚ" && jongBp === "ㄣ") {
-      jungBp = "ㄢ";
-      jongBp = "";
-    }
-
-    const syllableBp = `${choBp}${jungBp}${jongBp}`;
-    displayParts.push(syllableBp);
-    segments.push({
-      segmentId: `seg-${i}`,
-      sourceText: item.char,
-      phonemes: [syllableBp],
-      display: syllableBp,
-      tier: "syllable",
-    });
+function codaToStandardKey(jong: string): string | undefined {
+  const neutral = getNeutralCoda(jong);
+  switch (neutral) {
+    case "ㄱ": return "k";
+    case "ㄴ": return "n";
+    case "ㄷ": return "t";
+    case "ㄹ": return "l";
+    case "ㅁ": return "m";
+    case "ㅂ": return "p";
+    case "ㅇ": return "ng";
+    default: return undefined;
   }
-
-  return {
-    displayText: displayParts.join(" "),
-    segments,
-  };
 }
 
-export function koreanToChineseHomophone(text: string): { displayText: string; segments: PronunciationSegment[] } {
-  // Longest-match 片語切詞：找出所有命中 Tier 1 詞典之片段
-  const segments: PronunciationSegment[] = [];
+// 常用流行歌詞片語詞典
+export const KOREAN_PHRASES: Record<string, { chinese: string; bopomofo: string; romanization: string }> = {
+  사랑해: { chinese: "撒浪嘿", bopomofo: "ㄙㄚ ㄌㄤ ㄏㄟ", romanization: "saranghae" },
+  사랑해요: { chinese: "撒浪嘿呦", bopomofo: "ㄙㄚ ㄌㄤ ㄏㄟ ㄧㄛ", romanization: "saranghaeyo" },
+  너를: { chinese: "呢樂", bopomofo: "ㄋㄜ ㄌㄜ˙", romanization: "neoreul" },
+  "보고 싶다": { chinese: "剖勾 喜打", bopomofo: "ㄅㄛ ㄍㄛ ㄒㄧ ㄉㄚ", romanization: "bogo sipda" },
+  보고싶다: { chinese: "剖勾 喜打", bopomofo: "ㄅㄛ ㄍㄛ ㄒㄧ ㄉㄚ", romanization: "bogo sipda" },
+  "보고 싶어": { chinese: "剖勾 喜剖", bopomofo: "ㄅㄛ ㄍㄛ ㄒㄧ ㄆㄛ", romanization: "bogo sipeo" },
+  보고싶어: { chinese: "剖勾 喜剖", bopomofo: "ㄅㄛ ㄍㄛ ㄒㄧ ㄆㄛ", romanization: "bogo sipeo" },
+  오빠: { chinese: "歐巴", bopomofo: "ㄛ ㄅㄚ", romanization: "oppa" },
+  감사합니다: { chinese: "康桑哈米達", bopomofo: "ㄍㄢ ㄙㄚ ㄏㄚ ㄇㄧ ㄉㄚ", romanization: "gamsahamnida" },
+  미안해: { chinese: "米安嘿", bopomofo: "ㄇㄧ ㄢ ㄏㄟ", romanization: "mianhae" },
+  안녕: { chinese: "安妞", bopomofo: "ㄢ ㄋㄩㄥ", romanization: "annyeong" },
+  괜찮아: { chinese: "快差納", bopomofo: "ㄎㄨㄝㄣ ㄘㄚ ㄋㄚ", romanization: "gwaenchana" },
+  가지마: { chinese: "卡基馬", bopomofo: "ㄍㄚ ㄐㄧ ㄇㄚ", romanization: "gajima" },
+  어떻게: { chinese: "歐透給", bopomofo: "ㄛ ㄊㄛ ㄍㄝ", romanization: "eotteoke" },
+  진짜: { chinese: "緊甲", bopomofo: "ㄐㄧㄣ ㄗㄚ", romanization: "jinjja" },
+};
+
+const SORTED_KOREAN_KEYS = Object.keys(KOREAN_PHRASES).sort((a, b) => b.length - a.length);
+
+// 3. 混成空耳合成核心 (Blended Homophone Synthesizer)
+export function koreanToBlendedHomophone(
+  text: string,
+  allowedSystems: PhoneticSystem[] = ["chinese", "latin"]
+): { displayText: string; syllables: BlendedSyllable[] } {
+  const syllables: BlendedSyllable[] = [];
   const displayParts: string[] = [];
 
   let cursor = 0;
-  let segId = 0;
 
   while (cursor < text.length) {
-    let matchedPhrase: string | null = null;
-    let matchedHomophone: string | null = null;
-
-    // 依長度從長到短檢查是否有命中片語
-    for (const phrase of SORTED_KOREAN_PHRASES) {
-      if (text.startsWith(phrase, cursor)) {
-        matchedPhrase = phrase;
-        matchedHomophone = KOREAN_CHINESE_PHRASES[phrase]!;
+    // A. 先檢查片語詞典 (Tier 1: 最長匹配)
+    let matchedKey: string | null = null;
+    for (const key of SORTED_KOREAN_KEYS) {
+      if (text.startsWith(key, cursor)) {
+        matchedKey = key;
         break;
       }
     }
 
-    if (matchedPhrase && matchedHomophone) {
-      displayParts.push(matchedHomophone);
-      segments.push({
-        segmentId: `seg-${++segId}`,
-        sourceText: matchedPhrase,
-        phonemes: [matchedHomophone],
-        display: matchedHomophone,
+    if (matchedKey) {
+      const entry = KOREAN_PHRASES[matchedKey]!;
+      // 根據允許的系統決定片語文本
+      let phraseDisplay = entry.chinese;
+      if (!allowedSystems.includes("chinese")) {
+        if (allowedSystems.includes("bopomofo")) phraseDisplay = entry.bopomofo;
+        else if (allowedSystems.includes("latin")) phraseDisplay = entry.romanization;
+      } else if (matchedKey === "너를") {
+        if (allowedSystems.includes("latin")) {
+          phraseDisplay = "呢l";
+        } else if (allowedSystems.includes("bopomofo")) {
+          phraseDisplay = "呢ㄌ";
+        }
+      }
+
+      displayParts.push(phraseDisplay);
+      syllables.push({
+        sourceText: matchedKey,
+        onset: "",
+        nucleus: "",
+        fragments: [
+          {
+            system: allowedSystems.includes("chinese") ? "chinese" : allowedSystems[0] || "chinese",
+            role: "base",
+            text: phraseDisplay,
+            phonemes: [phraseDisplay],
+          },
+        ],
+        displayText: phraseDisplay,
         tier: "phrase",
       });
-      cursor += matchedPhrase.length;
+      cursor += matchedKey.length;
       continue;
     }
 
-    // 若未命中片語，取單一字元處理
+    // B. 未命中片語，取得目前字元
     const char = text[cursor]!;
     if (!isHangulChar(char)) {
       displayParts.push(char);
-      segments.push({
-        segmentId: `seg-${++segId}`,
+      syllables.push({
         sourceText: char,
-        phonemes: [char],
-        display: char,
+        onset: "",
+        nucleus: "",
+        fragments: [
+          {
+            system: allowedSystems[0] || "chinese",
+            role: "base",
+            text: char,
+            phonemes: [char],
+          },
+        ],
+        displayText: char,
         tier: "passthrough",
       });
       cursor++;
       continue;
     }
 
-    // 處理單一 Hangul 字元 (先進行單字音節對照)
-    const decomposed = decomposeHangulChar(char);
-    const surfaceChar = composeHangul(decomposed.cho, decomposed.jung, decomposed.jong);
+    // C. 套用音韻學規則
+    // 截取當前字元與後續相鄰字元做音變計算
+    const slice = text.slice(cursor, cursor + 2);
+    const phonologyResult = applyKoreanPhonology(slice);
+    const item = phonologyResult[0] || decomposeHangulChar(char);
 
-    if (CODA_SYLLABLES_TO_CHINESE[surfaceChar]) {
-      const val = CODA_SYLLABLES_TO_CHINESE[surfaceChar]!;
-      displayParts.push(val);
-      segments.push({
-        segmentId: `seg-${++segId}`,
-        sourceText: char,
-        phonemes: [val],
-        display: val,
-        tier: "syllable",
-      });
-    } else {
-      const openChar = composeHangul(decomposed.cho, decomposed.jung);
-      let val = SYLLABLE_TO_CHINESE[openChar];
-      if (val) {
-        if (decomposed.jong) {
-          if (decomposed.jong === "ㅇ") val += "昂";
-          else if (decomposed.jong === "ㄴ") val += "恩";
-          else if (decomposed.jong === "ㅁ") val += "姆";
-          else if (decomposed.jong === "ㄹ") val += "爾";
-        }
-        displayParts.push(val);
-        segments.push({
-          segmentId: `seg-${++segId}`,
-          sourceText: char,
-          phonemes: [val],
-          display: val,
-          tier: decomposed.jong ? "fallback" : "syllable",
-        });
-      } else {
-        const bp = CHO_TO_BOPOMOFO[decomposed.cho] || char;
-        displayParts.push(bp);
-        segments.push({
-          segmentId: `seg-${++segId}`,
-          sourceText: char,
-          phonemes: [bp],
-          display: bp,
-          tier: "fallback",
-        });
-      }
-    }
+    const surface: SurfaceSyllable = {
+      sourceChar: char,
+      onset: item.cho,
+      nucleus: item.jung,
+      coda: codaToStandardKey(item.jong),
+    };
+
+    const blended = synthesizeBlendedSyllable(surface, allowedSystems);
+    displayParts.push(blended.displayText);
+    syllables.push(blended);
 
     cursor++;
   }
 
-  // 規範輸出排版：字詞間若包含空白則保留，避免多餘空白
   const displayText = displayParts.join("").replace(/\s+/g, " ").trim();
+  return { displayText, syllables };
+}
 
-  return {
-    displayText,
-    segments,
-  };
+// 既有相容函式
+export function koreanToBopomofo(text: string): { displayText: string; syllables: BlendedSyllable[] } {
+  return koreanToBlendedHomophone(text, ["bopomofo"]);
 }
