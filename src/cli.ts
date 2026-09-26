@@ -11,6 +11,7 @@ async function main() {
 
   console.log("=========================================");
   console.log("  Universal Sing-Along Companion (MVP)   ");
+  console.log("  - 中文諧音（空耳）& 注音多語言跟唱引擎 -   ");
   console.log("=========================================");
 
   let connector;
@@ -38,9 +39,9 @@ async function main() {
 
   const port = await server.start();
   console.log(`\n[UI] 即時懸浮跟唱視圖已啟動: http://localhost:${port}`);
+  console.log("[Info] 支援中文字諧音（空耳）/ 純注音 / 雙排切換");
   console.log("[Info] 正在同步播放狀態，每秒刷新一次 (按 Ctrl+C 結束)...\n");
 
-  // 每秒輪詢一次並在終端顯示即時行
   setInterval(async () => {
     const display = await session.tick();
     const track = session.getCurrentTrack();
@@ -51,11 +52,19 @@ async function main() {
     }
 
     const orig = display.currentLine?.originalText || "♪ 間奏中 ♪";
-    const bp = display.currentLine?.pronunciation?.displayText || "";
+    const pron = display.currentLine?.pronunciation;
+    let pronStr = "";
+    if (pron) {
+      pronStr = `[跟唱: ${pron.displayText}]`;
+      if (pron.secondaryDisplayText) {
+        pronStr += ` [注音: ${pron.secondaryDisplayText}]`;
+      }
+    }
+
     const timeStr = `${Math.floor(display.positionMs / 1000)}s / ${Math.floor((display.durationMs || 0) / 1000)}s`;
 
     process.stdout.write(
-      `\r[${display.isPlaying ? "▶" : "⏸"}] ${track.artists[0]} - ${track.title} (${timeStr}) | ${orig} [注音: ${bp}]    `
+      `\r[${display.isPlaying ? "▶" : "⏸"}] ${track.artists[0]} - ${track.title} (${timeStr}) | ${orig} ${pronStr}    `
     );
   }, 1000);
 }
