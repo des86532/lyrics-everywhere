@@ -1,6 +1,5 @@
 import type {
-  PronunciationLayer,
-  PronunciationNotation,
+  PhoneticSystem,
   TranscriptionResult,
 } from "../domain/types.js";
 import type { LanguageTranscriber, TranscriptionRequest } from "./language-transcriber.js";
@@ -21,7 +20,6 @@ export class TranscriberRegistry {
   }
 
   resolve(text: string, preferredLanguage?: string): LanguageTranscriber | null {
-    // 1. 若有指定明確語言，優先比對宣告支援該語言的轉寫器
     if (preferredLanguage && preferredLanguage !== "auto") {
       const normalizedLang = preferredLanguage.toLowerCase().split("-")[0] || "";
       for (const transcriber of this.transcribers.values()) {
@@ -34,7 +32,6 @@ export class TranscriberRegistry {
       }
     }
 
-    // 2. 自動語言辨識 (Auto-detection via Unicode scripts)
     for (const transcriber of this.transcribers.values()) {
       if (transcriber.canHandle({ text, language: preferredLanguage })) {
         return transcriber;
@@ -51,36 +48,38 @@ export class TranscriberRegistry {
       return transcriber.transcribe(request);
     }
 
-    // 3. Passthrough 兜底 (當無專屬轉寫器時，直接保留原文)
-    const passthroughLayer: PronunciationLayer = {
-      notation: request.notation === "hybrid" ? "chinese_homophone" : request.notation,
+    // Passthrough
+    const systems = request.allowedSystems || ["chinese", "latin"];
+    return {
+      sourceText: request.text,
+      detectedLanguage: "unknown",
+      allowedSystems: systems,
       displayText: request.text,
-      segments: [
+      syllables: [
         {
-          segmentId: "seg-passthrough",
           sourceText: request.text,
-          phonemes: [request.text],
-          display: request.text,
+          onset: "",
+          nucleus: "",
+          fragments: [
+            {
+              system: systems[0] || "chinese",
+              role: "base",
+              text: request.text,
+              phonemes: [request.text],
+            },
+          ],
+          displayText: request.text,
           tier: "passthrough",
         },
       ],
     };
-
-    return {
-      sourceText: request.text,
-      requestedNotation: request.notation,
-      detectedLanguage: "unknown",
-      displayText: request.text,
-      layers: [passthroughLayer],
-      segments: passthroughLayer.segments,
-    };
   }
 
-  listCapabilities(): Array<{ id: string; languages: readonly string[]; notations: readonly PronunciationNotation[] }> {
+  listCapabilities(): Array<{ id: string; languages: readonly string[]; supportedSystems: readonly PhoneticSystem[] }> {
     return Array.from(this.transcribers.values()).map((t) => ({
       id: t.id,
       languages: t.languages,
-      notations: t.supportedNotations,
+      supportedSystems: t.supportedSystems,
     }));
   }
 }

@@ -1,5 +1,6 @@
 import type {
   ActiveLyricDisplay,
+  FullLyricsSheet,
   LineAnnotation,
   PlaybackSnapshot,
   PronunciationProfile,
@@ -15,10 +16,12 @@ import { JapaneseTranscriber } from "../pronunciation/japanese-transcriber.js";
 export class PlaybackSession {
   private currentTrack?: TrackMetadata;
   private currentLyrics?: SyncedLyrics;
-  private annotations: LineAnnotation[] = [];
+  private currentSheet?: FullLyricsSheet;
   private lastSnapshot?: PlaybackSnapshot;
   private generationSeq = 0;
+  private sheetRevision = 0;
   private listeners = new Set<(display: ActiveLyricDisplay) => void>();
+  private sheetListeners = new Set<(sheet: FullLyricsSheet) => void>();
   private registry: TranscriberRegistry;
 
   constructor(
@@ -27,7 +30,7 @@ export class PlaybackSession {
     private profile: PronunciationProfile = {
       profileId: "default",
       sourceLanguage: "auto",
-      notation: "chinese_homophone", // 預設使用中文字諧音（空耳跟唱）
+      allowedSystems: ["chinese", "latin"], // 預設使用中文漢字主音 + 英文尾音 (如 "巴p", "呢l")
       style: "singable",
       display: {
         original: true,
@@ -51,6 +54,11 @@ export class PlaybackSession {
     return () => this.listeners.delete(listener);
   }
 
+  subscribeSheet(listener: (sheet: FullLyricsSheet) => void): () => void {
+    this.sheetListeners.add(listener);
+    return () => this.sheetListeners.delete(listener);
+  }
+
   updateProfile(newProfile: Partial<PronunciationProfile>) {
     this.profile = {
       ...this.profile,
@@ -60,15 +68,29 @@ export class PlaybackSession {
         ...(newProfile.display || {}),
       },
     };
-    // 重新標註目前已有的歌詞
-    if (this.currentLyrics) {
-      this.annotations = this.annotateLyrics(this.currentLyrics);
+
+    if (this.currentLyrics && this.currentTrack) {
+      this.sheetRevision++;
+      const lines = this.annotateLyrics(this.currentLyrics);
+      this.currentSheet = {
+        trackKey: this.currentTrack.trackKey,
+        lyricsId: this.currentLyrics.lyricsId,
+        revision: this.sheetRevision,
+        status: "ready",
+        allowedSystems: this.profile.allowedSystems,
+        lines,
+      };
+      this.notifySheet();
       this.notify();
     }
   }
 
   getProfile(): PronunciationProfile {
     return this.profile;
+  }
+
+  getFullSheet(): FullLyricsSheet | undefined {
+    return this.currentSheet;
   }
 
   async tick(): Promise<ActiveLyricDisplay> {
@@ -85,20 +107,50 @@ export class PlaybackSession {
       this.currentTrack = incomingTrack;
       const currentGen = ++this.generationSeq;
       this.currentLyrics = undefined;
-      this.annotations = [];
+      this.sheetRevision++;
+
+      // 發送新歌 loading sheet
+      this.currentSheet = {
+        trackKey: incomingTrack.trackKey,
+        lyricsId: "",
+        revision: this.sheetRevision,
+        status: "loading",
+        allowedSystems: this.profile.allowedSystems,
+        lines: [],
+      };
+      this.notifySheet();
 
       this.lyricsClient.resolveLyrics(incomingTrack).then((lyrics) => {
-        if (this.generationSeq !== currentGen) return;
+        if (this.generationSeq !== currentGen) return; // Stale guard
         if (lyrics) {
           this.currentLyrics = lyrics;
-          this.annotations = this.annotateLyrics(lyrics);
+          const lines = this.annotateLyrics(lyrics);
+          this.currentSheet = {
+            trackKey: incomingTrack.trackKey,
+            lyricsId: lyrics.lyricsId,
+            revision: ++this.sheetRevision,
+            status: "ready",
+            allowedSystems: this.profile.allowedSystems,
+            lines,
+          };
+          this.notifySheet();
           this.notify();
+        } else {
+          this.currentSheet = {
+            trackKey: incomingTrack.trackKey,
+            lyricsId: "",
+            revision: ++this.sheetRevision,
+            status: "unavailable",
+            allowedSystems: this.profile.allowedSystems,
+            lines: [],
+          };
+          this.notifySheet();
         }
       });
     } else if (!incomingTrack) {
       this.currentTrack = undefined;
       this.currentLyrics = undefined;
-      this.annotations = [];
+      this.currentSheet = undefined;
     }
 
     const display = this.computeDisplay(snapshot);
@@ -111,7 +163,7 @@ export class PlaybackSession {
       const transcription = this.registry.transcribe({
         text: line.text,
         sourceLanguage: this.profile.sourceLanguage,
-        notation: this.profile.notation,
+        allowedSystems: this.profile.allowedSystems,
         style: this.profile.style,
       });
 
@@ -130,13 +182,15 @@ export class PlaybackSession {
     const pos = snap?.positionMs ?? 0;
     const isPlaying = snap?.state === "playing";
     const duration = snap?.track?.durationMs;
+    const lines = this.currentSheet?.lines || [];
 
-    let currentIndex = -1;
-    if (this.annotations.length > 0) {
-      for (let i = 0; i < this.annotations.length; i++) {
-        const line = this.annotations[i];
+    let currentIndex: number | null = null;
+
+    if (lines.length > 0) {
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
         if (line && line.startMs !== undefined) {
-          const nextLine = this.annotations[i + 1];
+          const nextLine = lines[i + 1];
           const end = line.endMs ?? nextLine?.startMs ?? line.startMs + 4000;
           if (pos >= line.startMs && pos < end) {
             currentIndex = i;
@@ -145,9 +199,9 @@ export class PlaybackSession {
         }
       }
 
-      if (currentIndex === -1) {
-        for (let i = this.annotations.length - 1; i >= 0; i--) {
-          const line = this.annotations[i];
+      if (currentIndex === null) {
+        for (let i = lines.length - 1; i >= 0; i--) {
+          const line = lines[i];
           if (line && line.startMs !== undefined && line.startMs <= pos) {
             currentIndex = i;
             break;
@@ -156,10 +210,10 @@ export class PlaybackSession {
       }
     }
 
-    const currentLine = currentIndex >= 0 ? this.annotations[currentIndex] : undefined;
-    const previousLine = currentIndex > 0 ? this.annotations[currentIndex - 1] : undefined;
-    const nextLine = currentIndex >= 0 && currentIndex < this.annotations.length - 1
-      ? this.annotations[currentIndex + 1]
+    const currentLine = currentIndex !== null ? lines[currentIndex] : undefined;
+    const previousLine = currentIndex !== null && currentIndex > 0 ? lines[currentIndex - 1] : undefined;
+    const nextLine = currentIndex !== null && currentIndex < lines.length - 1
+      ? lines[currentIndex + 1]
       : undefined;
 
     const progressPercent = duration && duration > 0
@@ -170,11 +224,13 @@ export class PlaybackSession {
       currentLine,
       previousLine,
       nextLine,
+      currentLineIndex: currentIndex,
+      activeLineId: currentLine?.lineId,
       progressPercent,
       isPlaying,
       positionMs: pos,
       durationMs: duration,
-      activeNotation: this.profile.notation,
+      allowedSystems: this.profile.allowedSystems,
     };
   }
 
@@ -189,11 +245,22 @@ export class PlaybackSession {
     }
   }
 
+  private notifySheet() {
+    if (!this.currentSheet) return;
+    for (const listener of this.sheetListeners) {
+      try {
+        listener(this.currentSheet);
+      } catch {
+        // 隔離 listener 錯誤
+      }
+    }
+  }
+
   getCurrentTrack() {
     return this.currentTrack;
   }
 
   getAnnotations() {
-    return this.annotations;
+    return this.currentSheet?.lines || [];
   }
 }

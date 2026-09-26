@@ -57,20 +57,15 @@ export interface SyncedLyrics {
   contentHash: string;
 }
 
-export type PronunciationNotation =
-  | "chinese_homophone" // 中文字諧音（空耳跟唱）
-  | "bopomofo"           // 台灣注音符號
-  | "romanization"       // 羅馬拼音
-  | "kana"               // 日語假名
-  | "hybrid";            // 漢字諧音為主 + 注音為輔雙排
+// 專為中文使用者收斂的三種基礎拼音工具系統
+export type PhoneticSystem = "chinese" | "bopomofo" | "latin";
 
-export type AtomicNotation = Exclude<PronunciationNotation, "hybrid">;
 export type PronunciationStyle = "standard" | "singable";
 
 export interface PronunciationProfile {
   profileId: string;
   sourceLanguage: "auto" | "korean" | "japanese" | "english" | string;
-  notation: PronunciationNotation;
+  allowedSystems: PhoneticSystem[]; // 允許融合之拼音工具組合，長度 1~3，例如 ["chinese", "latin"]
   style: PronunciationStyle;
   display: {
     original: boolean;
@@ -81,29 +76,30 @@ export interface PronunciationProfile {
 
 export type TranscriptionTier = "phrase" | "syllable" | "fallback" | "passthrough";
 
-export interface PronunciationSegment {
-  segmentId: string;
-  sourceText: string;
+export interface PronunciationFragment {
+  system: PhoneticSystem;
+  role: "base" | "coda" | "modifier";
+  text: string;
   phonemes: string[];
-  display: string;
-  tier?: TranscriptionTier;
-  flags?: ("approximation" | "liaison" | "nasalization" | "aspiration" | "tensification")[];
 }
 
-export interface PronunciationLayer {
-  notation: AtomicNotation;
+export interface BlendedSyllable {
+  sourceText: string;
+  onset: string;
+  nucleus: string;
+  coda?: string;
+  fragments: PronunciationFragment[];
   displayText: string;
-  segments: PronunciationSegment[];
+  tier?: TranscriptionTier;
+  approximation?: boolean;
 }
 
 export interface TranscriptionResult {
   sourceText: string;
-  requestedNotation: PronunciationNotation;
   detectedLanguage: string;
-  displayText: string; // 主顯示發音文字
-  secondaryDisplayText?: string; // 次顯示發音文字 (如 hybrid 模式下的注音列)
-  layers: PronunciationLayer[];
-  segments: PronunciationSegment[];
+  allowedSystems: PhoneticSystem[];
+  displayText: string; // 唯一融合的單行混成空耳字串（如 "撒浪嘿 呢l" 或 "巴p"）
+  syllables: BlendedSyllable[];
 }
 
 export interface LineAnnotation {
@@ -118,13 +114,38 @@ export interface LineAnnotation {
   };
 }
 
+// 全篇歌譜清單（換歌或偏好變更時推播一次）
+export interface FullLyricsSheet {
+  trackKey: string;
+  lyricsId: string;
+  revision: number;
+  status: "loading" | "ready" | "unavailable";
+  allowedSystems: PhoneticSystem[];
+  lines: LineAnnotation[];
+}
+
+// 輕量播放游標（每秒 tick 即時推播）
+export interface PlaybackCursor {
+  trackKey?: string;
+  sheetRevision?: number;
+  currentLineIndex: number | null; // 間奏中或無對應行為 null
+  activeLineId?: string;
+  positionMs: number;
+  durationMs?: number;
+  progressPercent: number;
+  isPlaying: boolean;
+}
+
+// 保持與既有 UI 相容的 ActiveLyricDisplay
 export interface ActiveLyricDisplay {
   currentLine?: LineAnnotation;
   previousLine?: LineAnnotation;
   nextLine?: LineAnnotation;
+  currentLineIndex: number | null;
+  activeLineId?: string;
   progressPercent: number;
   isPlaying: boolean;
   positionMs: number;
   durationMs?: number;
-  activeNotation?: PronunciationNotation;
+  allowedSystems?: PhoneticSystem[];
 }

@@ -4,6 +4,7 @@ export * from "./connectors/spotify-macos.js";
 export * from "./connectors/mock-connector.js";
 export * from "./lyrics/lrc-parser.js";
 export * from "./lyrics/lrclib-client.js";
+export * from "./pronunciation/blended-homophone.js";
 export * from "./pronunciation/korean-engine.js";
 export * from "./pronunciation/language-transcriber.js";
 export * from "./pronunciation/transcriber-registry.js";
