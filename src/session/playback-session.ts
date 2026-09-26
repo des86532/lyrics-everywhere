@@ -8,7 +8,9 @@ import type {
 } from "../domain/types.js";
 import type { MediaConnector } from "../connectors/media-connector.js";
 import type { LrclibClient } from "../lyrics/lrclib-client.js";
-import { koreanToBopomofo } from "../pronunciation/korean-engine.js";
+import { TranscriberRegistry } from "../pronunciation/transcriber-registry.js";
+import { KoreanTranscriber } from "../pronunciation/korean-transcriber.js";
+import { JapaneseTranscriber } from "../pronunciation/japanese-transcriber.js";
 
 export class PlaybackSession {
   private currentTrack?: TrackMetadata;
@@ -17,6 +19,7 @@ export class PlaybackSession {
   private lastSnapshot?: PlaybackSnapshot;
   private generationSeq = 0;
   private listeners = new Set<(display: ActiveLyricDisplay) => void>();
+  private registry: TranscriberRegistry;
 
   constructor(
     private connector: MediaConnector,
@@ -24,19 +27,48 @@ export class PlaybackSession {
     private profile: PronunciationProfile = {
       profileId: "default",
       sourceLanguage: "auto",
-      notation: "bopomofo",
+      notation: "chinese_homophone", // 預設使用中文字諧音（空耳跟唱）
       style: "singable",
       display: {
         original: true,
         pronunciation: true,
         translation: false,
       },
+    },
+    registry?: TranscriberRegistry
+  ) {
+    if (registry) {
+      this.registry = registry;
+    } else {
+      this.registry = new TranscriberRegistry();
+      this.registry.register(new KoreanTranscriber());
+      this.registry.register(new JapaneseTranscriber());
     }
-  ) {}
+  }
 
   subscribe(listener: (display: ActiveLyricDisplay) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  updateProfile(newProfile: Partial<PronunciationProfile>) {
+    this.profile = {
+      ...this.profile,
+      ...newProfile,
+      display: {
+        ...this.profile.display,
+        ...(newProfile.display || {}),
+      },
+    };
+    // 重新標註目前已有的歌詞
+    if (this.currentLyrics) {
+      this.annotations = this.annotateLyrics(this.currentLyrics);
+      this.notify();
+    }
+  }
+
+  getProfile(): PronunciationProfile {
+    return this.profile;
   }
 
   async tick(): Promise<ActiveLyricDisplay> {
@@ -55,9 +87,7 @@ export class PlaybackSession {
       this.currentLyrics = undefined;
       this.annotations = [];
 
-      // 非同步解析歌詞與發音標記
       this.lyricsClient.resolveLyrics(incomingTrack).then((lyrics) => {
-        // 如果在請求期間歌曲又換了，丟棄此 stale 結果
         if (this.generationSeq !== currentGen) return;
         if (lyrics) {
           this.currentLyrics = lyrics;
@@ -78,16 +108,19 @@ export class PlaybackSession {
 
   private annotateLyrics(lyrics: SyncedLyrics): LineAnnotation[] {
     return lyrics.lines.map((line) => {
-      const pron = koreanToBopomofo(line.text);
+      const transcription = this.registry.transcribe({
+        text: line.text,
+        sourceLanguage: this.profile.sourceLanguage,
+        notation: this.profile.notation,
+        style: this.profile.style,
+      });
+
       return {
         lineId: line.lineId,
         startMs: line.startMs,
         endMs: line.endMs,
         originalText: line.text,
-        pronunciation: {
-          displayText: pron.displayText,
-          segments: pron.segments,
-        },
+        pronunciation: transcription,
       };
     });
   }
@@ -100,7 +133,6 @@ export class PlaybackSession {
 
     let currentIndex = -1;
     if (this.annotations.length > 0) {
-      // 依目前時間找到對應的行
       for (let i = 0; i < this.annotations.length; i++) {
         const line = this.annotations[i];
         if (line && line.startMs !== undefined) {
@@ -113,7 +145,6 @@ export class PlaybackSession {
         }
       }
 
-      // 若未精確落入區間，找最近且 startMs <= pos 的行
       if (currentIndex === -1) {
         for (let i = this.annotations.length - 1; i >= 0; i--) {
           const line = this.annotations[i];
@@ -143,6 +174,7 @@ export class PlaybackSession {
       isPlaying,
       positionMs: pos,
       durationMs: duration,
+      activeNotation: this.profile.notation,
     };
   }
 

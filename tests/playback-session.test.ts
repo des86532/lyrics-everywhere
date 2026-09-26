@@ -20,7 +20,7 @@ describe("PlaybackSession Orchestrator", () => {
 [00:30.00]더 보고 싶다
   `;
 
-  it("identifies current, previous, and next lines based on positionMs", async () => {
+  it("identifies current, previous, and next lines with Chinese homophones by default", async () => {
     const mockConnector = new MockConnector(track1);
     const mockFetch = async () =>
       new Response(JSON.stringify({ syncedLyrics: sampleLrc, duration: 270 }));
@@ -28,22 +28,47 @@ describe("PlaybackSession Orchestrator", () => {
     const lyricsClient = new LrclibClient(mockFetch as unknown as typeof fetch);
     const session = new PlaybackSession(mockConnector, lyricsClient);
 
-    // 初始位置 0ms
     mockConnector.setState("playing");
     await session.tick();
-
-    // 等待非同步 lyrics resolution 完成
     await new Promise((r) => setTimeout(r, 50));
 
-    // 時間推移至 15000ms (15秒) -> 應該落在 [00:10.00] "보고 싶다"
     mockConnector.seek(15000);
     const display = await session.tick();
 
     expect(display.currentLine?.originalText).toBe("보고 싶다");
-    expect(display.currentLine?.pronunciation?.displayText).toBeDefined();
+    expect(display.currentLine?.pronunciation?.displayText).toContain("剖勾 喜打");
     expect(display.previousLine?.originalText).toBe("Intro");
     expect(display.nextLine?.originalText).toBe("이렇게 말하니까");
     expect(display.isPlaying).toBe(true);
+  });
+
+  it("supports dynamic switching between Chinese homophone, Bopomofo, and Hybrid modes", async () => {
+    const mockConnector = new MockConnector(track1);
+    const mockFetch = async () =>
+      new Response(JSON.stringify({ syncedLyrics: sampleLrc, duration: 270 }));
+
+    const lyricsClient = new LrclibClient(mockFetch as unknown as typeof fetch);
+    const session = new PlaybackSession(mockConnector, lyricsClient);
+
+    mockConnector.setState("playing");
+    mockConnector.seek(15000);
+    await session.tick();
+    await new Promise((r) => setTimeout(r, 50));
+
+    // 1. 預設是 chinese_homophone
+    let display = session.computeDisplay();
+    expect(display.currentLine?.pronunciation?.displayText).toContain("剖勾 喜打");
+
+    // 2. 切換至純注音
+    session.updateProfile({ notation: "bopomofo" });
+    display = session.computeDisplay();
+    expect(display.currentLine?.pronunciation?.displayText).toContain("ㄅㄛ");
+
+    // 3. 切換至 hybrid 雙排模式
+    session.updateProfile({ notation: "hybrid" });
+    display = session.computeDisplay();
+    expect(display.currentLine?.pronunciation?.displayText).toContain("剖勾 喜打");
+    expect(display.currentLine?.pronunciation?.secondaryDisplayText).toContain("ㄅㄛ");
   });
 
   it("guards against stale lyric responses when switching tracks rapidly", async () => {
@@ -58,10 +83,8 @@ describe("PlaybackSession Orchestrator", () => {
     const lyricsClient = new LrclibClient(mockFetch as unknown as typeof fetch);
     const session = new PlaybackSession(mockConnector, lyricsClient);
 
-    // 觸發 track1 查詢 (pendingResolvers[0])
     await session.tick();
 
-    // 快速切換到 track2 (pendingResolvers[1])
     const track2: TrackMetadata = {
       trackKey: "spotify:track2",
       source: { connector: "mock" },
@@ -72,13 +95,11 @@ describe("PlaybackSession Orchestrator", () => {
     mockConnector.setTrack(track2);
     await session.tick();
 
-    // 此時 track1 (第一個請求) 的延遲回應才回來
     const resolveTrack1 = pendingResolvers[0]!;
     resolveTrack1(new Response(JSON.stringify({ syncedLyrics: sampleLrc })));
     await new Promise((r) => setTimeout(r, 50));
 
-    // session 當前歌詞不應被 track1 的延遲回應覆蓋
     expect(session.getCurrentTrack()?.title).toBe("Dynamite");
-    expect(session.getAnnotations().length).toBe(0); // track2 還沒回來，track1 被 guard 丟棄
+    expect(session.getAnnotations().length).toBe(0);
   });
 });
