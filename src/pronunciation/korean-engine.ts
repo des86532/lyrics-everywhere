@@ -1,11 +1,13 @@
 import type {
   BlendedSyllable,
   PhoneticSystem,
+  PronunciationStyle,
 } from "../domain/types.js";
 import {
   synthesizeBlendedSyllable,
   type SurfaceSyllable,
 } from "./blended-homophone.js";
+import { GRAMMAR_PARTICLES } from "./korean-homophone-data.js";
 
 // 1. Hangul Unicode Constants
 export const HANGUL_BASE = 0xac00;
@@ -69,14 +71,20 @@ export function composeHangul(cho: string, jung: string, jong = ""): string {
   return String.fromCharCode(code);
 }
 
-// 2. 音韻變音規則引擎 (Contextual Phonological Transformation)
+// 2. 整行音韻序列解析 (Line-level Phonology Sequence)
+// 由左至右在同一個可變陣列上執行音變，保證連音聲母移位能傳遞給下一字！
 export function applyKoreanPhonology(text: string): DecomposedHangul[] {
   const chars = Array.from(text);
   const items = chars.map(decomposeHangulChar);
 
   for (let i = 0; i < items.length; i++) {
     const curr = items[i];
-    const next = items[i + 1];
+    let nextIdx = i + 1;
+    // 跨單一空格尋找相鄰字元（例如跨空格連音）
+    if (items[nextIdx] && items[nextIdx]?.char === " " && items[nextIdx + 1]?.isHangul) {
+      nextIdx = i + 2;
+    }
+    const next = items[nextIdx];
     if (!curr || !curr.isHangul) continue;
 
     // A. ㅎ 相關音變 (ㅎ-elision & Aspiration)
@@ -113,7 +121,7 @@ export function applyKoreanPhonology(text: string): DecomposedHangul[] {
       }
     }
 
-    // C. 連音化 (Liaison): 收音遇下一個字的初聲是 ㅇ
+    // C. 連音化 (Liaison): 收音遇下一音節以 ㅇ 開頭
     if (curr.jong && next && next.isHangul && next.cho === "ㅇ") {
       if (curr.jong === "ㄳ") { curr.jong = "ㄱ"; next.cho = "ㅅ"; }
       else if (curr.jong === "ㄵ") { curr.jong = "ㄴ"; next.cho = "ㅈ"; }
@@ -179,6 +187,7 @@ function codaToStandardKey(jong: string): string | undefined {
 
 // 常用流行歌詞片語詞典
 export const KOREAN_PHRASES: Record<string, { chinese: string; bopomofo: string; romanization: string }> = {
+  ...GRAMMAR_PARTICLES,
   사랑해: { chinese: "撒浪嘿", bopomofo: "ㄙㄚ ㄌㄤ ㄏㄟ", romanization: "saranghae" },
   사랑해요: { chinese: "撒浪嘿呦", bopomofo: "ㄙㄚ ㄌㄤ ㄏㄟ ㄧㄛ", romanization: "saranghaeyo" },
   너를: { chinese: "呢樂", bopomofo: "ㄋㄜ ㄌㄜ˙", romanization: "neoreul" },
@@ -201,10 +210,14 @@ const SORTED_KOREAN_KEYS = Object.keys(KOREAN_PHRASES).sort((a, b) => b.length -
 // 3. 混成空耳合成核心 (Blended Homophone Synthesizer)
 export function koreanToBlendedHomophone(
   text: string,
-  allowedSystems: PhoneticSystem[] = ["chinese", "latin"]
+  allowedSystems: PhoneticSystem[] = ["chinese", "latin"],
+  style: PronunciationStyle = "singable"
 ): { displayText: string; syllables: BlendedSyllable[] } {
   const syllables: BlendedSyllable[] = [];
   const displayParts: string[] = [];
+
+  // 1. 先對整行文字執行整行音韻序列解析，保證連音聲母移位至下一字！
+  const phonologyItems = applyKoreanPhonology(text);
 
   let cursor = 0;
 
@@ -220,8 +233,8 @@ export function koreanToBlendedHomophone(
 
     if (matchedKey) {
       const entry = KOREAN_PHRASES[matchedKey]!;
-      // 根據允許的系統決定片語文本
       let phraseDisplay = entry.chinese;
+
       if (!allowedSystems.includes("chinese")) {
         if (allowedSystems.includes("bopomofo")) phraseDisplay = entry.bopomofo;
         else if (allowedSystems.includes("latin")) phraseDisplay = entry.romanization;
@@ -253,7 +266,7 @@ export function koreanToBlendedHomophone(
       continue;
     }
 
-    // B. 未命中片語，取得目前字元
+    // B. 未命中片語，取得目前音韻處理後的字元
     const char = text[cursor]!;
     if (!isHangulChar(char)) {
       displayParts.push(char);
@@ -276,20 +289,19 @@ export function koreanToBlendedHomophone(
       continue;
     }
 
-    // C. 套用音韻學規則
-    // 截取當前字元與後續相鄰字元做音變計算
-    const slice = text.slice(cursor, cursor + 2);
-    const phonologyResult = applyKoreanPhonology(slice);
-    const item = phonologyResult[0] || decomposeHangulChar(char);
+    // 取出整行音韻序列中對應的表面發音音節
+    const item = phonologyItems[cursor] || decomposeHangulChar(char);
+    const isMedial = cursor > 0 && text[cursor - 1] !== " ";
 
     const surface: SurfaceSyllable = {
       sourceChar: char,
       onset: item.cho,
       nucleus: item.jung,
       coda: codaToStandardKey(item.jong),
+      isMedial,
     };
 
-    const blended = synthesizeBlendedSyllable(surface, allowedSystems);
+    const blended = synthesizeBlendedSyllable(surface, allowedSystems, style);
     displayParts.push(blended.displayText);
     syllables.push(blended);
 
@@ -302,5 +314,5 @@ export function koreanToBlendedHomophone(
 
 // 既有相容函式
 export function koreanToBopomofo(text: string): { displayText: string; syllables: BlendedSyllable[] } {
-  return koreanToBlendedHomophone(text, ["bopomofo"]);
+  return koreanToBlendedHomophone(text, ["bopomofo"], "standard");
 }
