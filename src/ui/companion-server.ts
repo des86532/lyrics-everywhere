@@ -56,7 +56,7 @@ export class CompanionServer {
 
       if (url.pathname === "/api/media/browser" && req.method === "POST") {
         const origin = req.headers.origin;
-        if (origin && !origin.startsWith("chrome-extension://")) {
+        if (!origin || !origin.startsWith("chrome-extension://")) {
           res.writeHead(403, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ error: "browser reports require a Chrome extension origin" }));
           return;
