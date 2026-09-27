@@ -1,12 +1,13 @@
 import { createServer, type Server } from "node:http";
 import type { FullLyricsSheet, PhoneticSystem, PlaybackCursor } from "../domain/types.js";
 import type { PlaybackSession } from "../session/playback-session.js";
+import type { BrowserMediaConnector } from "../connectors/browser-media-connector.js";
 
 export class CompanionServer {
   private server?: Server;
   private sseClients = new Set<(data: string) => void>();
 
-  constructor(private session: PlaybackSession, private port = 3838) {}
+  constructor(private session: PlaybackSession, private port = 3838, private readonly browserMedia?: BrowserMediaConnector) {}
 
   start(): Promise<number> {
     return new Promise((resolve) => {
@@ -37,7 +38,61 @@ export class CompanionServer {
       this.server = createServer(async (req, res) => {
         const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
 
-        // API: 更新允許的拼音系統組合 (1~3 種)
+      if (url.pathname === "/api/media/browser" && req.method === "OPTIONS") {
+        const origin = req.headers.origin;
+        if (origin && !origin.startsWith("chrome-extension://")) {
+          res.writeHead(403);
+          res.end();
+          return;
+        }
+        res.writeHead(204, {
+          "Access-Control-Allow-Origin": origin || "null",
+          "Access-Control-Allow-Methods": "POST, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type",
+        });
+        res.end();
+        return;
+      }
+
+      if (url.pathname === "/api/media/browser" && req.method === "POST") {
+        const origin = req.headers.origin;
+        if (!origin || !origin.startsWith("chrome-extension://")) {
+          res.writeHead(403, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "browser reports require a Chrome extension origin" }));
+          return;
+        }
+        let body = "";
+        let size = 0;
+        let rejected = false;
+        req.on("data", (chunk: Buffer) => {
+          size += chunk.length;
+          if (size > 64 * 1024) rejected = true;
+          else body += chunk.toString("utf8");
+        });
+        req.on("end", () => {
+          const headers: Record<string, string> = { "Content-Type": "application/json" };
+          if (origin) headers["Access-Control-Allow-Origin"] = origin;
+          if (rejected) {
+            res.writeHead(413, headers);
+            res.end(JSON.stringify({ error: "request body too large" }));
+            return;
+          }
+          try {
+            const result = this.browserMedia?.ingest(JSON.parse(body));
+            if (!result?.ok) {
+              res.writeHead(400, headers);
+              res.end(JSON.stringify({ error: result?.reason || "browser media receiver unavailable" }));
+              return;
+            }
+            res.writeHead(204, headers);
+            res.end();
+          } catch {
+            res.writeHead(400, headers);
+            res.end(JSON.stringify({ error: "invalid JSON" }));
+          }
+        });
+        return;
+      }
         if (req.method === "POST" && url.pathname === "/api/profile") {
           let body = "";
           req.on("data", (chunk) => { body += chunk; });
@@ -114,7 +169,11 @@ export class CompanionServer {
           return;
         }
 
-        // 預設首頁：提供全曲歌詞預載與動態高亮滾動視圖
+        if (url.pathname.startsWith("/api/")) {
+          res.writeHead(404, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Not found" }));
+          return;
+        }
         res.writeHead(200, {
           "Content-Type": "text/html; charset=utf-8",
           "Cache-Control": "no-cache",
@@ -122,8 +181,9 @@ export class CompanionServer {
         res.end(this.renderHtml());
       });
 
-      this.server.listen(this.port, () => {
-        resolve(this.port);
+      this.server.listen(this.port, "127.0.0.1", () => {
+        const address = this.server?.address();
+        resolve(typeof address === "object" && address ? address.port : this.port);
       });
     });
   }

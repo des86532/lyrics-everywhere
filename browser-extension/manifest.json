@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Lyrics Everywhere YouTube Connector",
+  "version": "0.1.0",
+  "description": "Reports YouTube and YouTube Music playback to the local Lyrics Everywhere companion.",
+  "permissions": [],
+  "host_permissions": ["http://127.0.0.1:3838/*"],
+  "background": { "service_worker": "service-worker.js" },
+  "content_scripts": [{
+    "matches": ["https://www.youtube.com/watch*", "https://music.youtube.com/*"],
+    "js": ["content-script.js"],
+    "run_at": "document_idle"
+  }]
+}
