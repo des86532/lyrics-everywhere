@@ -111,6 +111,6 @@ macOS 正常模式可同時接收 Spotify 與 Chrome YouTube 來源。YouTube �
 
 ### 支援範圍與限制
 
-目前以 macOS + Chrome Stable 驗證一般 YouTube watch 與 YouTube Music 的 title、artist、play/pause、position、duration、playback rate 與 SPA 換片。Chrome extension 只把必要的播放 metadata 傳送到本機 127.0.0.1:3838；歌詞查詢仍會送至既有 LRCLIB client。
+目前支援目標為 macOS + Chrome Stable，涵蓋一般 YouTube watch 與 YouTube Music 的 title、artist、play/pause、position、duration、playback rate 與 SPA 換片；實際 Chrome 端到端驗收需依下列步驟載入 extension 後執行。Chrome extension 只把必要的播放 metadata 傳送到本機 127.0.0.1:3838；歌詞查詢仍會送至既有 LRCLIB client。
 
 一般 YouTube 的 channel 可能不是實際歌手，因此 artist 與 LRCLIB 命中是 best effort。Safari、未實測的 Chromium 衍生瀏覽器、Shorts、直播、投放到其他裝置與 DRM 不在支援承諾內。廣告不會被當成新 track；extension 或 companion 失聯超過 freshness TTL 後，來源會變成 unavailable。
