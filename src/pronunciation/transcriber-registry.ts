@@ -53,6 +53,7 @@ export class TranscriberRegistry {
     return {
       sourceText: request.text,
       detectedLanguage: "unknown",
+      mode: request.mode || "streamlined",
       allowedSystems: systems,
       displayText: request.text,
       syllables: [

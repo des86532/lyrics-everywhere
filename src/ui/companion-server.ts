@@ -44,15 +44,19 @@ export class CompanionServer {
           req.on("end", () => {
             try {
               const data = JSON.parse(body || "{}");
+              const updates: Record<string, unknown> = {};
+              if (data.mode === "streamlined" || data.mode === "precise") {
+                updates.mode = data.mode;
+              }
               if (Array.isArray(data.allowedSystems) && data.allowedSystems.length > 0) {
                 const systems = data.allowedSystems.filter((s: string) =>
                   ["chinese", "bopomofo", "latin"].includes(s)
                 ) as PhoneticSystem[];
-
                 if (systems.length > 0) {
-                  this.session.updateProfile({ allowedSystems: systems.slice(0, 3) });
+                  updates.allowedSystems = systems.slice(0, 3);
                 }
               }
+              this.session.updateProfile(updates);
               res.writeHead(200, { "Content-Type": "application/json" });
               res.end(JSON.stringify({ success: true, profile: this.session.getProfile() }));
             } catch {
@@ -325,9 +329,18 @@ export class CompanionServer {
         <span id="badge-text">連線中</span>
       </div>
     </div>
+    <!-- 兩段式模式切換 (流暢跟唱 vs 精準標註) -->
+    <div style="display:flex; gap:8px; margin-bottom:12px;">
+      <button id="btn-streamlined" style="flex:1; padding:10px; border-radius:12px; border:none; font-weight:700; cursor:pointer; background:${currentProfile.mode === 'streamlined' ? '#38bdf8; color:#0f172a;' : 'rgba(255,255,255,0.08); color:#94a3b8;'}" onclick="setPronunciationMode('streamlined')">
+        🎤 流暢跟唱（1音1字・推薦）
+      </button>
+      <button id="btn-precise" style="flex:1; padding:10px; border-radius:12px; border:none; font-weight:700; cursor:pointer; background:${currentProfile.mode === 'precise' ? '#38bdf8; color:#0f172a;' : 'rgba(255,255,255,0.08); color:#94a3b8;'}" onclick="setPronunciationMode('precise')">
+        ⚙️ 精準標註（顯示收音）
+      </button>
+    </div>
 
-    <!-- 拼音工具勾選列 (可任意勾選 1~3 種組合混成空耳) -->
-    <div class="system-selector">
+    <!-- 拼音工具勾選列 (僅在精準模式下展開) -->
+    <div id="systems-panel" class="system-selector" style="display:${currentProfile.mode === 'precise' ? 'flex' : 'none'};">
       <span>拼音工具組合:</span>
       <label class="chk-item">
         <input type="checkbox" id="chk-chinese" ${allowed.includes("chinese") ? "checked" : ""} onchange="updateSystems()"> 🀄 中文漢字
@@ -340,6 +353,9 @@ export class CompanionServer {
       </label>
     </div>
 
+    <div id="streamlined-badge" style="display:${currentProfile.mode === 'streamlined' ? 'block' : 'none'}; background:rgba(56, 189, 248, 0.08); border:1px solid rgba(56, 189, 248, 0.2); padding:8px 16px; border-radius:12px; margin-bottom:14px; font-size:0.8rem; color:#7dd3fc; text-align:center;">
+      ✨ 已啟用極簡模式：每個韓文音節對應一個常用漢字，字數極簡、絕不拖長，速度輕鬆跟上！
+    </div>
     <!-- 全篇歌詞滾動檢視區 (全曲一次預載) -->
     <div id="lyrics-sheet" class="lyrics-sheet-container">
       <div style="text-align:center; padding: 40px; color: #64748b;">
@@ -398,6 +414,35 @@ export class CompanionServer {
       if (activeEl) {
         activeEl.scrollIntoView({ behavior: "smooth", block: "center" });
       }
+    }
+
+    async function setPronunciationMode(mode) {
+      const btnStreamlined = document.getElementById("btn-streamlined");
+      const btnPrecise = document.getElementById("btn-precise");
+      const systemsPanel = document.getElementById("systems-panel");
+      const badge = document.getElementById("streamlined-badge");
+
+      if (mode === "streamlined") {
+        btnStreamlined.style.background = "#38bdf8";
+        btnStreamlined.style.color = "#0f172a";
+        btnPrecise.style.background = "rgba(255,255,255,0.08)";
+        btnPrecise.style.color = "#94a3b8";
+        systemsPanel.style.display = "none";
+        badge.style.display = "block";
+      } else {
+        btnPrecise.style.background = "#38bdf8";
+        btnPrecise.style.color = "#0f172a";
+        btnStreamlined.style.background = "rgba(255,255,255,0.08)";
+        btnStreamlined.style.color = "#94a3b8";
+        systemsPanel.style.display = "flex";
+        badge.style.display = "none";
+      }
+
+      await fetch("/api/profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode })
+      });
     }
 
     async function updateSystems() {

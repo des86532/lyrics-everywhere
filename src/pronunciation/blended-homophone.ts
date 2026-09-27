@@ -2,6 +2,7 @@ import type {
   BlendedSyllable,
   PhoneticSystem,
   PronunciationFragment,
+  PronunciationMode,
   PronunciationStyle,
 } from "../domain/types.js";
 import {
@@ -27,10 +28,12 @@ export const FUSED_CODA_CHINESE: Record<string, string> = {
   "ㄱ+ㅏ+n": "甘", "ㄴ+ㅏ+n": "難", "ㄷ+ㅏ+n": "單", "ㄹ+ㅏ+n": "蘭", "ㅁ+ㅏ+n": "滿", "ㅂ+ㅏ+n": "班", "ㅅ+ㅏ+n": "山", "ㅇ+ㅏ+n": "安", "ㅈ+ㅏ+n": "占", "ㅊ+ㅏ+n": "餐", "ㅎ+ㅏ+n": "韓",
   "ㄱ+ㅓ+n": "根", "ㄴ+ㅓ+n": "嫩", "ㄷ+ㅓ+n": "頓", "ㄹ+ㅓ+n": "倫", "ㅁ+ㅓ+n": "門", "ㅂ+ㅓ+n": "本", "ㅅ+ㅓ+n": "森", "ㅇ+ㅓ+n": "恩", "ㅈ+ㅓ+n": "真", "ㅊ+ㅓ+n": "陳", "ㅎ+ㅓ+n": "痕",
   "ㄱ+ㅣ+n": "金", "ㄴ+ㅣ+n": "您", "ㄷ+ㅣ+n": "丁", "ㄹ+ㅣ+n": "林", "ㅁ+ㅣ+n": "民", "ㅂ+ㅣ+n": "賓", "ㅅ+ㅣ+n": "辛", "ㅇ+ㅣ+n": "銀", "ㅈ+ㅣ+n": "金", "ㅊ+ㅣ+n": "親", "ㅎ+ㅣ+n": "欣",
+  "ㄴ+ㅜ+n": "潤", "ㅅ+ㅗ+n": "送", "ㅃ+ㅡ+n": "奔",
   // -m (ㅁ)
   "ㄱ+ㅏ+m": "甘", "ㄴ+ㅏ+m": "南", "ㄷ+ㅏ+m": "丹", "ㄹ+ㅏ+m": "藍", "ㅁ+ㅏ+m": "滿", "ㅂ+ㅏ+m": "凡", "ㅅ+ㅏ+m": "三", "ㅇ+ㅏ+m": "暗", "ㅈ+ㅏ+m": "湛", "ㅊ+ㅏ+m": "參", "ㅎ+ㅏ+m": "含",
   // -l (ㄹ) - 嚴格單一漢字對照
-  "ㄱ+ㅏ+l": "葛", "ㄴ+ㅏ+l": "那", "ㄷ+ㅏ+l": "達", "ㄹ+ㅏ+l": "拉", "ㅁ+ㅏ+l": "末", "ㅂ+ㅏ+l": "拔", "ㅅ+ㅏ+l": "薩", "ㅇ+ㅏ+l": "阿", "ㅈ+ㅏ+l": "札", "ㅊ+ㅏ+l": "察", "ㅎ+ㅏ+l": "哈",
+  "ㄱ+ㅏ+l": "葛", "ㄴ+ㅏ+l": "乃", "ㄷ+ㅏ+l": "達", "ㄹ+ㅏ+l": "拉", "ㅁ+ㅏ+l": "末", "ㅂ+ㅏ+l": "拔", "ㅅ+ㅏ+l": "薩", "ㅇ+ㅏ+l": "阿", "ㅈ+ㅏ+l": "札", "ㅊ+ㅏ+l": "察", "ㅎ+ㅏ+l": "哈",
+  "ㄴ+ㅓ+l": "勒", "ㅅ+ㅜ+l": "素",
 };
 
 // 羅馬字母聲母對照 (Revised Romanization)
@@ -69,7 +72,8 @@ const CODA_TO_BOPOMOFO: Record<string, string> = {
 export function synthesizeBlendedSyllable(
   syl: SurfaceSyllable,
   allowedSystems: PhoneticSystem[],
-  style: PronunciationStyle = "singable"
+  mode: PronunciationMode = "streamlined",
+  _style: PronunciationStyle = "singable"
 ): BlendedSyllable {
   const hasChinese = allowedSystems.includes("chinese");
   const hasLatin = allowedSystems.includes("latin");
@@ -77,7 +81,7 @@ export function synthesizeBlendedSyllable(
 
   const fragments: PronunciationFragment[] = [];
 
-  // 1. 純 Latin 模式
+  // 1. 純 Latin 模式 (僅限使用者明確只勾選英文時)
   if (hasLatin && !hasChinese && !hasBopomofo) {
     const romOnset = ONSET_TO_ROMAN[syl.onset] || "";
     const romNuc = NUCLEUS_TO_ROMAN[syl.nucleus] || "a";
@@ -100,7 +104,7 @@ export function synthesizeBlendedSyllable(
     };
   }
 
-  // 2. 純 Bopomofo 模式
+  // 2. 純 Bopomofo 模式 (僅限使用者明確只勾選注音時)
   if (hasBopomofo && !hasChinese && !hasLatin) {
     let bpOnset = ONSET_TO_BOPOMOFO[syl.onset] || "";
     let bpNuc = NUCLEUS_TO_BOPOMOFO[syl.nucleus] || "ㄚ";
@@ -130,7 +134,7 @@ export function synthesizeBlendedSyllable(
     };
   }
 
-  // 3. 包含中文漢字的混成模式
+  // 3. 包含中文漢字的空耳模式 (預設且最符合大眾跟唱體驗)
   // A. 優先嘗試收音自然融合單一漢字 (Fused single Hanzi)
   const fusedKey = `${syl.onset}+${syl.nucleus}+${syl.coda || ""}`;
   if (syl.coda && FUSED_CODA_CHINESE[fusedKey]) {
@@ -163,13 +167,11 @@ export function synthesizeBlendedSyllable(
     baseHanzi = EXTENDED_OPEN_SYLLABLE_CHINESE[openKey];
   }
 
-  // 主動嵌入注音/英文
+  // 極少數關鍵音節主動嵌入親和符號
   if (syl.onset === "ㅂ" && syl.nucleus === "ㅕ" && syl.coda === "l" && hasBopomofo) {
     baseHanzi = "ㄅㄧㄡ"; // 별
   } else if (syl.onset === "ㅁ" && syl.nucleus === "ㅕ" && hasBopomofo) {
     baseHanzi = "ㄇㄧㄡ"; // 며
-  } else if (syl.isMedial && syl.onset === "ㄱ" && syl.nucleus === "ㅣ" && hasLatin) {
-    baseHanzi = "gi"; // 죽이고 -> 朱gi勾
   }
 
   if (!baseHanzi) {
@@ -187,28 +189,33 @@ export function synthesizeBlendedSyllable(
     phonemes: [baseHanzi],
   });
 
-  // C. 收音處理：混成尾輔音 (Blended Coda Fragment)
+  // C. 收音處理：根據模式 (streamlined vs precise) 決定
   let codaModifier = "";
+
   if (syl.coda) {
-    // 在 singable 模式下，若該收音微弱且無自然字，可平滑省略不加尾飾以維持跟唱流暢度
-    if (style === "singable" && ["k", "t", "p"].includes(syl.coda) && !hasLatin && !hasBopomofo) {
+    if (mode === "streamlined") {
+      // Streamlined 極簡模式：嚴格執行 1 音節 = 1 乾淨漢字！
+      // 微弱塞音 (k, t, p) 自然閉唇/頓音吸收，流音 (l) 亦不加尾綴，保證字數精簡、跟得上原曲速度！
       codaModifier = "";
-    } else if (hasLatin) {
-      codaModifier = syl.coda;
-      fragments.push({
-        system: "latin",
-        role: "coda",
-        text: codaModifier,
-        phonemes: [codaModifier],
-      });
-    } else if (hasBopomofo) {
-      codaModifier = CODA_TO_BOPOMOFO[syl.coda] || "";
-      fragments.push({
-        system: "bopomofo",
-        role: "coda",
-        text: codaModifier,
-        phonemes: [codaModifier],
-      });
+    } else {
+      // Precise 精準模式：保留尾音英文字母或注音符號供進階檢視
+      if (hasLatin) {
+        codaModifier = syl.coda;
+        fragments.push({
+          system: "latin",
+          role: "coda",
+          text: codaModifier,
+          phonemes: [codaModifier],
+        });
+      } else if (hasBopomofo) {
+        codaModifier = CODA_TO_BOPOMOFO[syl.coda] || "";
+        fragments.push({
+          system: "bopomofo",
+          role: "coda",
+          text: codaModifier,
+          phonemes: [codaModifier],
+        });
+      }
     }
   }
 
@@ -221,7 +228,7 @@ export function synthesizeBlendedSyllable(
     coda: syl.coda,
     fragments,
     displayText,
-    tier: syl.coda && !codaModifier ? "fallback" : "syllable",
+    tier: "syllable",
     approximation: Boolean(syl.coda && !codaModifier),
   };
 }

@@ -46,7 +46,7 @@ export const EXTENDED_OPEN_SYLLABLE_CHINESE: Record<string, string> = {
 
   // ㅇ (vowel)
   "ㅇ+ㅏ": "阿", "ㅇ+ㅑ": "亞", "ㅇ+ㅓ": "俄", "ㅇ+ㅕ": "葉", "ㅇ+ㅗ": "歐", "ㅇ+ㅛ": "優", "ㅇ+ㅜ": "烏", "ㅇ+ㅠ": "悠", "ㅇ+ㅡ": "額", "ㅇ+ㅣ": "伊",
-  "ㅇ+ㅐ": "愛", "ㅇ+ㅔ": "欸", "ㅇ+ㅘ": "哇", "ㅇ+ㅙ": "歪", "ㅇ+ㅚ": "外", "ㅇ+ㅝ": "窩", "ㅇ+ㅞ": "衛", "ㅇ+ㅟ": "威", "ㅇ+ㅢ": "依",
+  "ㅇ+ㅐ": "愛", "ㅇ+ㅔ": "欸", "ㅇ+ㅖ": "耶", "ㅇ+ㅘ": "哇", "ㅇ+ㅙ": "歪", "ㅇ+ㅚ": "外", "ㅇ+ㅝ": "窩", "ㅇ+ㅞ": "衛", "ㅇ+ㅟ": "威", "ㅇ+ㅢ": "依",
 
   // ㅈ (ch/j)
   "ㅈ+ㅏ": "扎", "ㅈ+ㅑ": "嘉", "ㅈ+ㅓ": "澤", "ㅈ+ㅕ": "節", "ㅈ+ㅗ": "佐", "ㅈ+ㅛ": "照", "ㅈ+ㅜ": "朱", "ㅈ+ㅠ": "主", "ㅈ+ㅡ": "茲", "ㅈ+ㅣ": "吉",
@@ -112,10 +112,20 @@ export const GRAMMAR_PARTICLES: Record<string, { chinese: string; bopomofo: stri
   "정말": { chinese: "重買", bopomofo: "ㄓㄨㄥ ㄇㄞ", romanization: "jeongmal" },
   "초라해지잖아": { chinese: "抽拉黑基炸拿", bopomofo: "ㄔㄡ ㄌㄚ ㄏㄟ ㄐㄧ ㄓㄚ ㄋㄚ", romanization: "chorahaejijana" },
   "지잖아": { chinese: "基炸拿", bopomofo: "ㄐㄧ ㄓㄚ ㄋㄚ", romanization: "jijana" },
-  "빨간": { chinese: "八甘", bopomofo: "ㄅㄚ ㄍㄢ", romanization: "bbalgan" },
-  "예쁜": { chinese: "耶奔", bopomofo: "ㄧㄝ ㄅㄣ", romanization: "yeppeun" },
-  "입술로": { chinese: "依素漏", bopomofo: "ㄧ ㄙㄨ ㄌㄡ", romanization: "ipsullo" },
-  "죽이고": { chinese: "朱gi勾", bopomofo: "ㄓㄨ ㄍㄧ ㄍㄡ", romanization: "jugigo" },
+  "너의": { chinese: "挪耶", bopomofo: "ㄋㄨㄛ ㄧㄝ", romanization: "neoui" },
+  "눈": { chinese: "潤", bopomofo: "ㄖㄨㄣ", romanization: "nun" },
+  "코": { chinese: "摳", bopomofo: "ㄎㄡ", romanization: "ko" },
+  "입": { chinese: "依", bopomofo: "ㄧ", romanization: "ip" },
+  "날": { chinese: "乃", bopomofo: "ㄋㄞ", romanization: "nal" },
+  "만지던": { chinese: "滿基東", bopomofo: "ㄇㄢ ㄐㄧ ㄉㄨㄥ", romanization: "manjideon" },
+  "네": { chinese: "內", bopomofo: "ㄋㄟ", romanization: "ne" },
+  "손길": { chinese: "送ㄍㄧ", bopomofo: "ㄙㄨㄥ ㄍㄧ", romanization: "songil" },
+  "작은": { chinese: "加根", bopomofo: "ㄐㄧㄚ ㄍㄣ", romanization: "jageun" },
+  "손톱까지": { chinese: "送透嘎基", bopomofo: "ㄙㄨㄥ ㄊㄡ ㄍㄚ ㄐㄧ", romanization: "sontopkkaji" },
+  "손톱": { chinese: "送透", bopomofo: "ㄙㄨㄥ ㄊㄡ", romanization: "sontop" },
+  "까지": { chinese: "嘎基", bopomofo: "ㄍㄚ ㄐㄧ", romanization: "kkaji" },
+  "죽이고 가": { chinese: "朱基勾 嘎", bopomofo: "ㄓㄨ ㄍㄧ ㄍㄡ ㄍㄚ", romanization: "jugigo ga" },
+  "죽이고": { chinese: "朱基勾", bopomofo: "ㄓㄨ ㄍㄧ ㄍㄡ", romanization: "jugigo" },
   "어서": { chinese: "偶手", bopomofo: "ㄡ ㄕㄡ", romanization: "eoseo" },
   "오늘이": { chinese: "偶呢李", bopomofo: "ㄡ ㄋㄜ ㄌㄧ", romanization: "oneuri" },
   "남은": { chinese: "那悶", bopomofo: "ㄋㄚ ㄇㄣ", romanization: "nameun" },

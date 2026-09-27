@@ -62,10 +62,14 @@ export type PhoneticSystem = "chinese" | "bopomofo" | "latin";
 
 export type PronunciationStyle = "standard" | "singable";
 
+// 跟唱模式：streamlined (極簡流暢，1韓字=1漢字，不加冗餘英文字母，跟得上速度) | precise (精準標註，保留收音字母)
+export type PronunciationMode = "streamlined" | "precise";
+
 export interface PronunciationProfile {
   profileId: string;
   sourceLanguage: "auto" | "korean" | "japanese" | "english" | string;
-  allowedSystems: PhoneticSystem[]; // 允許融合之拼音工具組合，長度 1~3，例如 ["chinese", "latin"]
+  mode: PronunciationMode; // 預設 "streamlined"
+  allowedSystems: PhoneticSystem[]; // 允許融合之拼音工具組合，長度 1~3，例如 ["chinese"] 或 ["chinese", "latin"]
   style: PronunciationStyle;
   display: {
     original: boolean;
@@ -97,8 +101,9 @@ export interface BlendedSyllable {
 export interface TranscriptionResult {
   sourceText: string;
   detectedLanguage: string;
+  mode: PronunciationMode;
   allowedSystems: PhoneticSystem[];
-  displayText: string; // 唯一融合的單行混成空耳字串（如 "撒浪嘿 呢l" 或 "巴p"）
+  displayText: string; // 唯一融合的單行混成空耳字串（Streamlined 模式下為純淨 1:1 繁中常用字）
   syllables: BlendedSyllable[];
 }
 
@@ -120,6 +125,7 @@ export interface FullLyricsSheet {
   lyricsId: string;
   revision: number;
   status: "loading" | "ready" | "unavailable";
+  mode: PronunciationMode;
   allowedSystems: PhoneticSystem[];
   lines: LineAnnotation[];
 }
@@ -147,5 +153,6 @@ export interface ActiveLyricDisplay {
   isPlaying: boolean;
   positionMs: number;
   durationMs?: number;
+  mode?: PronunciationMode;
   allowedSystems?: PhoneticSystem[];
 }

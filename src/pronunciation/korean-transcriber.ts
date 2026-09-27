@@ -31,11 +31,13 @@ export class KoreanTranscriber implements LanguageTranscriber {
   transcribe(request: TranscriptionRequest): TranscriptionResult {
     const systems = request.allowedSystems.length > 0 ? request.allowedSystems : (["chinese", "latin"] as PhoneticSystem[]);
     const style = request.style || "singable";
-    const result = koreanToBlendedHomophone(request.text, systems, style);
+    const mode = request.mode || "streamlined";
+    const result = koreanToBlendedHomophone(request.text, systems, mode, style);
 
     return {
       sourceText: request.text,
       detectedLanguage: "ko",
+      mode,
       allowedSystems: systems,
       displayText: result.displayText,
       syllables: result.syllables,

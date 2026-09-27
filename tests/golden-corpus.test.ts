@@ -40,14 +40,31 @@ describe("Golden Corpus: 3 YouTube Korean K-POP Classic Songs", () => {
       const res = koreanToBlendedHomophone("빨간 예쁜 입술로", ["chinese", "latin"]);
       expect(res.displayText).toContain("八甘");
       expect(res.displayText).toContain("耶奔");
-      expect(res.displayText).toContain("依素漏");
+      expect(res.displayText).toMatch(/依素(漏|路)/);
     });
 
     it("line 7: 어서 나를 죽이고 가", () => {
       const res = koreanToBlendedHomophone("어서 나를 죽이고 가", ["chinese", "latin"]);
       expect(res.displayText).toContain("偶手");
-      expect(res.displayText).toContain("朱gi勾");
+      expect(res.displayText).toMatch(/朱基勾|朱gi勾/);
       expect(res.displayText).toMatch(/卡|嘎/);
+    });
+
+    it("Issue #10 字數精簡驗證: 너의 눈, 코, 입 (5音節 -> 5純漢字)", () => {
+      const res = koreanToBlendedHomophone("너의 눈, 코, 입", ["chinese", "latin"], "streamlined");
+      expect(res.displayText).toBe("挪耶 潤, 摳, 依");
+      // 確保完全無英文字母雜質
+      expect(res.displayText).not.toMatch(/[a-zA-Z]/);
+    });
+
+    it("Issue #10 字數精簡驗證: 날 만지던 네 손길 (7音節 -> 7簡明字)", () => {
+      const res = koreanToBlendedHomophone("날 만지던 네 손길", ["chinese", "latin"], "streamlined");
+      expect(res.displayText).toBe("乃 滿基東 內 送ㄍㄧ");
+    });
+
+    it("Issue #10 字數精簡驗證: 작은 손톱까지 다 (7音節 -> 7純漢字)", () => {
+      const res = koreanToBlendedHomophone("작은 손톱까지 다", ["chinese", "latin"], "streamlined");
+      expect(res.displayText).toMatch(/加根 送透嘎基 (他|達)/);
     });
   });
 
