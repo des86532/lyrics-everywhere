@@ -93,3 +93,24 @@ node dist/cli.js --demo
 ```bash
 node dist/cli.js
 ```
+## YouTube / YouTube Music 支援
+
+macOS 正常模式可同時接收 Spotify 與 Chrome YouTube 來源。YouTube 偵測透過本機 Chrome MV3 extension，不使用 YouTube API key。
+
+### 啟動
+
+1. 建置並啟動 companion：bash: pnpm install; pnpm run build; node dist/cli.js --source auto
+2. 在 Chrome 開啟 chrome://extensions，啟用「開發人員模式」，選擇本專案的 browser-extension/ 目錄載入 unpacked extension。
+3. 開啟 https://www.youtube.com/watch?v=... 或 https://music.youtube.com/ 播放歌曲，再開啟 http://localhost:3838。
+
+可用來源模式：
+- --source auto：macOS 優先保留目前播放中的來源；同時開始時 Spotify 優先，YouTube 可透過 browser report 接入。
+- --source youtube：只接收 Chrome YouTube extension。
+- --source spotify：只接收 macOS Spotify；非 macOS 會回報錯誤。
+- --demo：使用內建模擬曲目，不偵測外部媒體。
+
+### 支援範圍與限制
+
+目前以 macOS + Chrome Stable 驗證一般 YouTube watch 與 YouTube Music 的 title、artist、play/pause、position、duration、playback rate 與 SPA 換片。Chrome extension 只把必要的播放 metadata 傳送到本機 127.0.0.1:3838；歌詞查詢仍會送至既有 LRCLIB client。
+
+一般 YouTube 的 channel 可能不是實際歌手，因此 artist 與 LRCLIB 命中是 best effort。Safari、未實測的 Chromium 衍生瀏覽器、Shorts、直播、投放到其他裝置與 DRM 不在支援承諾內。廣告不會被當成新 track；extension 或 companion 失聯超過 freshness TTL 後，來源會變成 unavailable。
