@@ -201,6 +201,7 @@ export class JapaneseTranscriber implements LanguageTranscriber {
     return {
       sourceText: text,
       detectedLanguage: "ja",
+      mode: request.mode || "streamlined",
       allowedSystems: systems,
       displayText,
       syllables,

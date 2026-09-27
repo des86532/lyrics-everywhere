@@ -8,9 +8,21 @@ describe("TranscriberRegistry & Multi-language Blended Homophones", () => {
   registry.register(new KoreanTranscriber());
   registry.register(new JapaneseTranscriber());
 
-  it("automatically routes Korean lyrics to blended homophones (中文+英文)", () => {
+  it("automatically routes Korean lyrics to streamlined homophones by default", () => {
     const res = registry.transcribe({
       text: "사랑해 너를",
+      allowedSystems: ["chinese", "latin"],
+    });
+
+    expect(res.detectedLanguage).toBe("ko");
+    expect(res.displayText).toContain("撒浪嘿");
+    expect(res.displayText).toContain("呢樂");
+  });
+
+  it("supports precise mode with Latin coda suffix when requested", () => {
+    const res = registry.transcribe({
+      text: "사랑해 너를",
+      mode: "precise",
       allowedSystems: ["chinese", "latin"],
     });
 

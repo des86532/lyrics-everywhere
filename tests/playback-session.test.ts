@@ -68,10 +68,16 @@ describe("PlaybackSession Orchestrator & Full Lyrics Sheet", () => {
     let sheet = session.getFullSheet();
     expect(sheet?.lines[1]?.pronunciation?.displayText).toContain("ㄅㄛ");
 
-    // 2. 切換至中文 + 英文
-    session.updateProfile({ allowedSystems: ["chinese", "latin"] });
+    // 2. 切換至精準模式 (precise)
+    session.updateProfile({ mode: "precise", allowedSystems: ["chinese", "latin"] });
     sheet = session.getFullSheet();
+    expect(sheet?.mode).toBe("precise");
     expect(sheet?.lines[1]?.pronunciation?.displayText).toContain("剖勾 喜打");
+
+    // 3. 切換回極簡流暢模式 (streamlined)
+    session.updateProfile({ mode: "streamlined" });
+    sheet = session.getFullSheet();
+    expect(sheet?.mode).toBe("streamlined");
   });
 
   it("guards against stale lyric responses when switching tracks rapidly", async () => {
