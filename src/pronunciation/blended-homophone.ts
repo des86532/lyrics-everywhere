@@ -173,7 +173,12 @@ export function synthesizeBlendedSyllable(
   }
 
   if (!baseHanzi) {
-    if (hasBopomofo) {
+    if (hasChinese) {
+      baseHanzi =
+        EXTENDED_OPEN_SYLLABLE_CHINESE[`${syl.onset}+ㅏ`] ||
+        EXTENDED_OPEN_SYLLABLE_CHINESE[`ㅇ+${syl.nucleus}`] ||
+        "啊";
+    } else if (hasBopomofo) {
       baseHanzi = `${ONSET_TO_BOPOMOFO[syl.onset] || ""}${NUCLEUS_TO_BOPOMOFO[syl.nucleus] || ""}`;
     } else {
       baseHanzi = `${ONSET_TO_ROMAN[syl.onset] || ""}${NUCLEUS_TO_ROMAN[syl.nucleus] || ""}`;

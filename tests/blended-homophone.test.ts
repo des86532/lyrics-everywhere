@@ -25,7 +25,11 @@ describe("Blended Homophone Synthesizer (混成空耳)", () => {
     expect(res2.displayText).toBe("乃");
   });
 
+  it("falls back to one Han character for an unmapped Hangul syllable", () => {
+    const res = koreanToBlendedHomophone("쀍", ["chinese"]);
 
+    expect(res.displayText).toBe("八");
+  });
   it("preserves natural fused Chinese characters when available (e.g. 난 -> 難, 당 -> 當)", () => {
     const res1 = koreanToBlendedHomophone("난", ["chinese", "latin"]);
     expect(res1.displayText).toBe("難");
