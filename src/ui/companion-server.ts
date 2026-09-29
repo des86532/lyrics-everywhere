@@ -217,6 +217,11 @@ export class CompanionServer {
   private renderHtml(): string {
     const currentProfile = this.session.getProfile();
     const allowed = currentProfile.allowedSystems;
+    const preservedLanguages = new Set(
+      [currentProfile.targetLocale, ...currentProfile.passthroughLanguages]
+        .map((locale) => locale.toLowerCase().split(/[-_]/)[0] || "")
+    );
+    const selectedSystem = allowed[0] || "chinese";
 
     return `<!DOCTYPE html>
 <html lang="zh-TW">
@@ -274,9 +279,13 @@ export class CompanionServer {
     }
     .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #10b981; }
 
-    /* 拼音系統勾選組合列 */
+    /* 語言與顯示偏好 */
+    .language-selector,
     .system-selector {
+      border: 0;
+      min-width: 0;
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
       gap: 12px;
       background: rgba(15, 23, 42, 0.6);
@@ -286,7 +295,18 @@ export class CompanionServer {
       font-size: 0.85rem;
       color: #94a3b8;
     }
-    .system-selector span { font-weight: 700; color: #e2e8f0; }
+    .language-selector legend,
+    .system-selector legend {
+      padding: 0;
+      margin-bottom: 8px;
+      font-weight: 700;
+      color: #e2e8f0;
+    }
+    .language-options {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
     .chk-item {
       display: inline-flex;
       align-items: center;
@@ -383,10 +403,10 @@ export class CompanionServer {
   </style>
 </head>
 <body>
-  <div class="container">
+  <main class="container">
     <div class="header">
       <div>
-        <div id="title" class="track-title">全曲歌詞預載中...</div>
+        <h1 id="title" class="track-title">全曲歌詞預載中...</h1>
         <div id="artist" class="track-artist">Universal Sing-Along Companion</div>
       </div>
       <div id="badge" class="status-badge">
@@ -394,40 +414,34 @@ export class CompanionServer {
         <span id="badge-text">連線中</span>
       </div>
     </div>
-    <div style="margin-bottom:12px; padding:12px; border-radius:12px; background:rgba(255,255,255,0.05);">
-      <label for="target-locale" style="display:block; margin-bottom:8px;">主要原文語言（非歌詞翻譯）</label>
-      <select id="target-locale" onchange="updateLanguages()" style="width:100%; padding:8px; border-radius:8px;">
-        <option value="zh-TW" ${currentProfile.targetLocale === "zh-TW" ? "selected" : ""}>繁體中文</option>
-        <option value="en" ${currentProfile.targetLocale === "en" ? "selected" : ""}>English</option>
-        <option value="ja" ${currentProfile.targetLocale === "ja" ? "selected" : ""}>日本語</option>
-        <option value="ko" ${currentProfile.targetLocale === "ko" ? "selected" : ""}>한국어</option>
-      </select>
-      <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:10px;">
-        <label class="chk-item"><input class="passthrough-language" type="checkbox" value="en" ${currentProfile.passthroughLanguages.includes("en") ? "checked" : ""} onchange="updateLanguages()"> 保留英文</label>
-        <label class="chk-item"><input class="passthrough-language" type="checkbox" value="ja" ${currentProfile.passthroughLanguages.includes("ja") ? "checked" : ""} onchange="updateLanguages()"> 保留日文</label>
-        <label class="chk-item"><input class="passthrough-language" type="checkbox" value="ko" ${currentProfile.passthroughLanguages.includes("ko") ? "checked" : ""} onchange="updateLanguages()"> 保留韓文</label>
-        <label class="chk-item"><input class="passthrough-language" type="checkbox" value="zh" ${currentProfile.passthroughLanguages.includes("zh") ? "checked" : ""} onchange="updateLanguages()"> 保留中文</label>
+    <fieldset class="language-selector" style="margin-bottom:12px; padding:12px; border-radius:12px; background:rgba(255,255,255,0.05);">
+      <legend>保留原文語言（非歌詞翻譯，至少選一種）</legend>
+      <div class="language-options">
+        <label class="chk-item"><input class="preserved-language" name="preserved-language" type="checkbox" value="zh" ${preservedLanguages.has("zh") ? "checked" : ""} onchange="updateLanguages(event)"> 保留中文</label>
+        <label class="chk-item"><input class="preserved-language" name="preserved-language" type="checkbox" value="en" ${preservedLanguages.has("en") ? "checked" : ""} onchange="updateLanguages(event)"> 保留英文</label>
+        <label class="chk-item"><input class="preserved-language" name="preserved-language" type="checkbox" value="ja" ${preservedLanguages.has("ja") ? "checked" : ""} onchange="updateLanguages(event)"> 保留日文</label>
+        <label class="chk-item"><input class="preserved-language" name="preserved-language" type="checkbox" value="ko" ${preservedLanguages.has("ko") ? "checked" : ""} onchange="updateLanguages(event)"> 保留韓文</label>
       </div>
-    </div>
-    <div class="system-selector" style="display:flex; margin-bottom:12px;">
-      <span>空耳顯示方式：</span>
+    </fieldset>
+    <fieldset class="system-selector" style="margin-bottom:12px;">
+      <legend>空耳顯示方式</legend>
       <label class="chk-item">
-        <input type="checkbox" id="chk-chinese" ${allowed.includes("chinese") ? "checked" : ""} onchange="updateSystems()"> 🀄 中文漢字
+        <input type="radio" name="phonetic-system" value="chinese" ${selectedSystem === "chinese" ? "checked" : ""} onchange="updateSystems()"> 🀄 中文漢字
       </label>
       <label class="chk-item">
-        <input type="checkbox" id="chk-latin" ${allowed.includes("latin") ? "checked" : ""} onchange="updateSystems()"> 🔤 英文字母
+        <input type="radio" name="phonetic-system" value="latin" ${selectedSystem === "latin" ? "checked" : ""} onchange="updateSystems()"> 🔤 英文字母
       </label>
       <label class="chk-item">
-        <input type="checkbox" id="chk-bopomofo" ${allowed.includes("bopomofo") ? "checked" : ""} onchange="updateSystems()"> ㄅ 台灣注音
+        <input type="radio" name="phonetic-system" value="bopomofo" ${selectedSystem === "bopomofo" ? "checked" : ""} onchange="updateSystems()"> ㄅ 台灣注音
       </label>
-    </div>
+    </fieldset>
     <div style="background:rgba(56, 189, 248, 0.08); border:1px solid rgba(56, 189, 248, 0.2); padding:8px 16px; border-radius:12px; margin-bottom:14px; font-size:0.8rem; color:#7dd3fc; text-align:center;">
-      ✨ 使用簡潔空耳；可指定原文語言，其他語言照常轉寫。
+      ✨ 選取的原文語言會維持原樣不翻譯，未選取的語言照常轉寫。
     </div>
     <!-- 全篇歌詞滾動檢視區 (全曲一次預載) -->
     <div id="lyrics-sheet" class="lyrics-sheet-container">
       <div style="text-align:center; padding: 40px; color: #64748b;">
-        正在預載全篇歌詞與混成空耳...
+        正在預載全篇歌詞與空耳...
       </div>
     </div>
     <!-- 手動滾動時出現的快速回正提示 -->
@@ -436,10 +450,10 @@ export class CompanionServer {
     </button>
 
     <div class="footer">
-      <div>💡 提示：混成空耳結合漢字與尾音字母，保持一音節一拍，非歌詞直譯</div>
+      <div>💡 提示：顯示方式可切換漢字、注音或英文字母；原文保留設定不會翻譯歌詞</div>
       <div id="time-info">00:00</div>
     </div>
-  </div>
+  </main>
 
   <script>
     const titleEl = document.getElementById("title");
@@ -483,10 +497,16 @@ export class CompanionServer {
       }
     }
 
-    async function updateLanguages() {
-      const targetLocale = document.getElementById("target-locale").value;
-      const passthroughLanguages = Array.from(document.querySelectorAll(".passthrough-language:checked"))
+    async function updateLanguages(event) {
+      const preservedLanguages = Array.from(document.querySelectorAll(".preserved-language:checked"))
         .map((input) => input.value);
+      if (preservedLanguages.length === 0) {
+        event.currentTarget.checked = true;
+        return;
+      }
+
+      const [primaryLanguage, ...passthroughLanguages] = preservedLanguages;
+      const targetLocale = primaryLanguage === "zh" ? "zh-TW" : primaryLanguage;
       await fetch("/api/profile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -495,21 +515,11 @@ export class CompanionServer {
     }
 
     async function updateSystems() {
-      const allowed = [];
-      if (document.getElementById("chk-chinese").checked) allowed.push("chinese");
-      if (document.getElementById("chk-latin").checked) allowed.push("latin");
-      if (document.getElementById("chk-bopomofo").checked) allowed.push("bopomofo");
-
-      if (allowed.length === 0) {
-        alert("至少需勾選一種拼音工具！");
-        document.getElementById("chk-chinese").checked = true;
-        allowed.push("chinese");
-      }
-
+      const selected = document.querySelector('input[name="phonetic-system"]:checked')?.value || "chinese";
       await fetch("/api/profile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ allowedSystems: allowed })
+        body: JSON.stringify({ allowedSystems: [selected] })
       });
     }
 

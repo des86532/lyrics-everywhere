@@ -58,7 +58,7 @@ async function main() {
   const server = new CompanionServer(session, 3838, browserConnector);
   const port = await server.start();
   console.log("\n[UI] 全曲歌詞滾動視圖已啟動: http://localhost:" + port);
-  console.log("[Info] 支援多拼音系統混成 (中文 + 英文/注音)");
+  console.log("[Info] 介面可選擇中文漢字、英文字母或台灣注音顯示");
   if (browserConnector) console.log("[Info] 請載入 browser-extension/ 到 Chrome 的 chrome://extensions");
   console.log("[Info] 正在同步播放狀態，每秒刷新一次 (按 Ctrl+C 結束)...\n");
 
