@@ -1,7 +1,6 @@
 import type {
   BlendedSyllable,
   PhoneticSystem,
-  PronunciationMode,
   PronunciationStyle,
 } from "../domain/types.js";
 import {
@@ -208,7 +207,6 @@ const SORTED_KOREAN_KEYS = Object.keys(KOREAN_PHRASES).sort((a, b) => b.length -
 export function koreanToBlendedHomophone(
   text: string,
   allowedSystems: PhoneticSystem[] = ["chinese", "latin"],
-  mode: PronunciationMode = "streamlined",
   style: PronunciationStyle = "singable"
 ): { displayText: string; syllables: BlendedSyllable[] } {
   const syllables: BlendedSyllable[] = [];
@@ -237,15 +235,7 @@ export function koreanToBlendedHomophone(
         if (allowedSystems.includes("bopomofo")) phraseDisplay = entry.bopomofo;
         else if (allowedSystems.includes("latin")) phraseDisplay = entry.romanization;
       } else if (matchedKey === "너를") {
-        if (mode === "precise") {
-          if (allowedSystems.includes("latin")) {
-            phraseDisplay = "呢l";
-          } else if (allowedSystems.includes("bopomofo")) {
-            phraseDisplay = "呢ㄌ";
-          }
-        } else {
-          phraseDisplay = "呢樂";
-        }
+        phraseDisplay = "呢樂";
       }
 
       displayParts.push(phraseDisplay);
@@ -303,7 +293,7 @@ export function koreanToBlendedHomophone(
       isMedial,
     };
 
-    const blended = synthesizeBlendedSyllable(surface, allowedSystems, mode, style);
+    const blended = synthesizeBlendedSyllable(surface, allowedSystems, style);
     displayParts.push(blended.displayText);
     syllables.push(blended);
 
@@ -316,5 +306,5 @@ export function koreanToBlendedHomophone(
 
 // 既有相容函式
 export function koreanToBopomofo(text: string): { displayText: string; syllables: BlendedSyllable[] } {
-  return koreanToBlendedHomophone(text, ["bopomofo"], "precise", "standard");
+  return koreanToBlendedHomophone(text, ["bopomofo"], "standard");
 }

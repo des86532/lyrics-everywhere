@@ -51,19 +51,19 @@ describe("Golden Corpus: 3 YouTube Korean K-POP Classic Songs", () => {
     });
 
     it("Issue #10 字數精簡驗證: 너의 눈, 코, 입 (5音節 -> 5純漢字)", () => {
-      const res = koreanToBlendedHomophone("너의 눈, 코, 입", ["chinese", "latin"], "streamlined");
+      const res = koreanToBlendedHomophone("너의 눈, 코, 입", ["chinese", "latin"]);
       expect(res.displayText).toBe("挪耶 潤, 摳, 依");
       // 確保完全無英文字母雜質
       expect(res.displayText).not.toMatch(/[a-zA-Z]/);
     });
 
     it("Issue #10 字數精簡驗證: 날 만지던 네 손길 (7音節 -> 7簡明字)", () => {
-      const res = koreanToBlendedHomophone("날 만지던 네 손길", ["chinese", "latin"], "streamlined");
-      expect(res.displayText).toBe("乃 滿基東 內 送ㄍㄧ");
+      const res = koreanToBlendedHomophone("날 만지던 네 손길", ["chinese", "latin"]);
+      expect(res.displayText).toBe("乃 滿基東 內 送基");
     });
 
     it("Issue #10 字數精簡驗證: 작은 손톱까지 다 (7音節 -> 7純漢字)", () => {
-      const res = koreanToBlendedHomophone("작은 손톱까지 다", ["chinese", "latin"], "streamlined");
+      const res = koreanToBlendedHomophone("작은 손톱까지 다", ["chinese", "latin"]);
       expect(res.displayText).toMatch(/加根 送透嘎基 (他|達)/);
     });
   });
@@ -77,14 +77,14 @@ describe("Golden Corpus: 3 YouTube Korean K-POP Classic Songs", () => {
 
     it("line 9: 우리 소원을 빌며 웃던 그 시간", () => {
       const res = koreanToBlendedHomophone("우리 소원을 빌며 웃던 그 시간", ["chinese", "latin"]);
-      expect(res.displayText).toContain("逼ㄇㄧㄡ");
+      expect(res.displayText).toContain("比妙");
       expect(res.displayText).toContain("屋東");
     });
 
     it("line 10: 별 게 다 네 생각이 나", () => {
       const res = koreanToBlendedHomophone("별 게 다 네 생각이 나", ["chinese", "latin"]);
-      expect(res.displayText).toContain("ㄅㄧㄡ");
-      expect(res.displayText).toContain("生嘎ㄍㄧ");
+      expect(res.displayText).toContain("別");
+      expect(res.displayText).toContain("生嘎基");
     });
   });
 });

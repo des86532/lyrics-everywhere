@@ -1,6 +1,5 @@
 import type {
   PhoneticSystem,
-  PronunciationMode,
   PronunciationStyle,
   TranscriptionResult,
 } from "../domain/types.js";
@@ -8,10 +7,19 @@ import type {
 export interface TranscriptionRequest {
   text: string;
   sourceLanguage?: string; // BCP 47 或 auto，如 "ko", "ja", "auto"
-  targetLocale?: string;   // 預設 "zh-TW"
-  mode?: PronunciationMode; // "streamlined" (極簡流暢跟唱) | "precise" (精準標註)
-  allowedSystems: PhoneticSystem[]; // 允許使用之拼音系統清單（如 ["chinese"] 或 ["chinese", "latin"]）
+  targetLocale?: string;   // 原文保留的主要語言，預設 "zh-TW"
+  passthroughLanguages?: string[]; // 額外維持原文的語言
+  allowedSystems: PhoneticSystem[];
   style?: PronunciationStyle;
+}
+
+export function preservesLanguage(
+  request: TranscriptionRequest,
+  language: string,
+): boolean {
+  const baseLanguage = (locale: string) => locale.toLowerCase().split(/[-_]/)[0];
+  const preserved = [request.targetLocale || "zh-TW", ...(request.passthroughLanguages || [])];
+  return preserved.some((locale) => baseLanguage(locale) === baseLanguage(language));
 }
 
 export interface LanguageTranscriber {

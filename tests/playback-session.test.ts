@@ -65,21 +65,10 @@ describe("PlaybackSession Orchestrator & Full Lyrics Sheet", () => {
 
     // 1. 切換至純注音
     session.updateProfile({ allowedSystems: ["bopomofo"] });
-    let sheet = session.getFullSheet();
+    const sheet = session.getFullSheet();
     expect(sheet?.lines[1]?.pronunciation?.displayText).toContain("ㄅㄛ");
 
-    // 2. 切換至精準模式 (precise)
-    session.updateProfile({ mode: "precise", allowedSystems: ["chinese", "latin"] });
-    sheet = session.getFullSheet();
-    expect(sheet?.mode).toBe("precise");
-    expect(sheet?.lines[1]?.pronunciation?.displayText).toContain("剖勾 喜打");
-
-    // 3. 切換回極簡流暢模式 (streamlined)
-    session.updateProfile({ mode: "streamlined" });
-    sheet = session.getFullSheet();
-    expect(sheet?.mode).toBe("streamlined");
   });
-
   it("guards against stale lyric responses when switching tracks rapidly", async () => {
     const mockConnector = new MockConnector(track1);
     const pendingResolvers: ((value: Response) => void)[] = [];

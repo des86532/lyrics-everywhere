@@ -30,7 +30,8 @@ export class PlaybackSession {
     private profile: PronunciationProfile = {
       profileId: "default",
       sourceLanguage: "auto",
-      mode: "streamlined", // 預設使用極簡流暢跟唱模式 (1 音節 = 1 乾淨漢字，0 冗餘字母尾音)
+      targetLocale: "zh-TW",
+      passthroughLanguages: [],
       allowedSystems: ["chinese"],
       style: "singable",
       display: {
@@ -78,7 +79,6 @@ export class PlaybackSession {
         lyricsId: this.currentLyrics.lyricsId,
         revision: this.sheetRevision,
         status: "ready",
-        mode: this.profile.mode,
         allowedSystems: this.profile.allowedSystems,
         lines,
       };
@@ -117,7 +117,6 @@ export class PlaybackSession {
         lyricsId: "",
         revision: this.sheetRevision,
         status: "loading",
-        mode: this.profile.mode,
         allowedSystems: this.profile.allowedSystems,
         lines: [],
       };
@@ -133,7 +132,6 @@ export class PlaybackSession {
             lyricsId: lyrics.lyricsId,
             revision: ++this.sheetRevision,
             status: "ready",
-            mode: this.profile.mode,
             allowedSystems: this.profile.allowedSystems,
             lines,
           };
@@ -145,7 +143,6 @@ export class PlaybackSession {
             lyricsId: "",
             revision: ++this.sheetRevision,
             status: "unavailable",
-            mode: this.profile.mode,
             allowedSystems: this.profile.allowedSystems,
             lines: [],
           };
@@ -169,7 +166,8 @@ export class PlaybackSession {
         text: line.text,
         sourceLanguage: this.profile.sourceLanguage,
         allowedSystems: this.profile.allowedSystems,
-        mode: this.profile.mode,
+        targetLocale: this.profile.targetLocale,
+        passthroughLanguages: this.profile.passthroughLanguages,
         style: this.profile.style,
       });
 
@@ -236,7 +234,6 @@ export class PlaybackSession {
       isPlaying,
       positionMs: pos,
       durationMs: duration,
-      mode: this.profile.mode,
       allowedSystems: this.profile.allowedSystems,
     };
   }
