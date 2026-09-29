@@ -62,14 +62,12 @@ export type PhoneticSystem = "chinese" | "bopomofo" | "latin";
 
 export type PronunciationStyle = "standard" | "singable";
 
-// 跟唱模式：streamlined (極簡流暢，1韓字=1漢字，不加冗餘英文字母，跟得上速度) | precise (精準標註，保留收音字母)
-export type PronunciationMode = "streamlined" | "precise";
-
 export interface PronunciationProfile {
   profileId: string;
   sourceLanguage: "auto" | "korean" | "japanese" | "english" | string;
-  mode: PronunciationMode; // 預設 "streamlined"
-  allowedSystems: PhoneticSystem[]; // 允許融合之拼音工具組合，長度 1~3，例如 ["chinese"] 或 ["chinese", "latin"]
+  targetLocale: string;
+  passthroughLanguages: string[];
+  allowedSystems: PhoneticSystem[];
   style: PronunciationStyle;
   display: {
     original: boolean;
@@ -101,9 +99,8 @@ export interface BlendedSyllable {
 export interface TranscriptionResult {
   sourceText: string;
   detectedLanguage: string;
-  mode: PronunciationMode;
   allowedSystems: PhoneticSystem[];
-  displayText: string; // 唯一融合的單行混成空耳字串（Streamlined 模式下為純淨 1:1 繁中常用字）
+  displayText: string;
   syllables: BlendedSyllable[];
 }
 
@@ -125,7 +122,6 @@ export interface FullLyricsSheet {
   lyricsId: string;
   revision: number;
   status: "loading" | "ready" | "unavailable";
-  mode: PronunciationMode;
   allowedSystems: PhoneticSystem[];
   lines: LineAnnotation[];
 }
@@ -134,7 +130,7 @@ export interface FullLyricsSheet {
 export interface PlaybackCursor {
   trackKey?: string;
   sheetRevision?: number;
-  currentLineIndex: number | null; // 間奏中或無對應行為 null
+  currentLineIndex: number | null;
   activeLineId?: string;
   positionMs: number;
   durationMs?: number;
@@ -142,7 +138,6 @@ export interface PlaybackCursor {
   isPlaying: boolean;
 }
 
-// 保持與既有 UI 相容的 ActiveLyricDisplay
 export interface ActiveLyricDisplay {
   currentLine?: LineAnnotation;
   previousLine?: LineAnnotation;
@@ -153,6 +148,5 @@ export interface ActiveLyricDisplay {
   isPlaying: boolean;
   positionMs: number;
   durationMs?: number;
-  mode?: PronunciationMode;
   allowedSystems?: PhoneticSystem[];
 }

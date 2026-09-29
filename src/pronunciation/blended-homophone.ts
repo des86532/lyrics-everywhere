@@ -2,7 +2,6 @@ import type {
   BlendedSyllable,
   PhoneticSystem,
   PronunciationFragment,
-  PronunciationMode,
   PronunciationStyle,
 } from "../domain/types.js";
 import {
@@ -72,7 +71,6 @@ const CODA_TO_BOPOMOFO: Record<string, string> = {
 export function synthesizeBlendedSyllable(
   syl: SurfaceSyllable,
   allowedSystems: PhoneticSystem[],
-  mode: PronunciationMode = "streamlined",
   _style: PronunciationStyle = "singable"
 ): BlendedSyllable {
   const hasChinese = allowedSystems.includes("chinese");
@@ -189,37 +187,8 @@ export function synthesizeBlendedSyllable(
     phonemes: [baseHanzi],
   });
 
-  // C. 收音處理：根據模式 (streamlined vs precise) 決定
-  let codaModifier = "";
 
-  if (syl.coda) {
-    if (mode === "streamlined") {
-      // Streamlined 極簡模式：嚴格執行 1 音節 = 1 乾淨漢字！
-      // 微弱塞音 (k, t, p) 自然閉唇/頓音吸收，流音 (l) 亦不加尾綴，保證字數精簡、跟得上原曲速度！
-      codaModifier = "";
-    } else {
-      // Precise 精準模式：保留尾音英文字母或注音符號供進階檢視
-      if (hasLatin) {
-        codaModifier = syl.coda;
-        fragments.push({
-          system: "latin",
-          role: "coda",
-          text: codaModifier,
-          phonemes: [codaModifier],
-        });
-      } else if (hasBopomofo) {
-        codaModifier = CODA_TO_BOPOMOFO[syl.coda] || "";
-        fragments.push({
-          system: "bopomofo",
-          role: "coda",
-          text: codaModifier,
-          phonemes: [codaModifier],
-        });
-      }
-    }
-  }
-
-  const displayText = `${baseHanzi}${codaModifier}`;
+  const displayText = baseHanzi;
 
   return {
     sourceText: syl.sourceChar,
@@ -229,6 +198,6 @@ export function synthesizeBlendedSyllable(
     fragments,
     displayText,
     tier: "syllable",
-    approximation: Boolean(syl.coda && !codaModifier),
+    approximation: Boolean(syl.coda),
   };
 }

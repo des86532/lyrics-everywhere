@@ -3,7 +3,7 @@ import type {
   PhoneticSystem,
   TranscriptionResult,
 } from "../domain/types.js";
-import type { LanguageTranscriber, TranscriptionRequest } from "./language-transcriber.js";
+import { preservesLanguage, type LanguageTranscriber, type TranscriptionRequest } from "./language-transcriber.js";
 
 const HIRAGANA_START = 0x3040;
 const HIRAGANA_END = 0x309f;
@@ -114,7 +114,7 @@ export class JapaneseTranscriber implements LanguageTranscriber {
     while (cursor < text.length) {
       let matchedKey: string | null = null;
       for (const key of SORTED_JA_KEYS) {
-        if (text.startsWith(key, cursor)) {
+        if (text.startsWith(key, cursor) && !(preservesLanguage(request, "zh") && /[\u3400-\u9fff]/.test(key))) {
           matchedKey = key;
           break;
         }
@@ -197,11 +197,10 @@ export class JapaneseTranscriber implements LanguageTranscriber {
       cursor++;
     }
 
-    const displayText = displayParts.join("").replace(/\s+/g, " ").trim();
+    const displayText = displayParts.join("");
     return {
       sourceText: text,
       detectedLanguage: "ja",
-      mode: request.mode || "streamlined",
       allowedSystems: systems,
       displayText,
       syllables,

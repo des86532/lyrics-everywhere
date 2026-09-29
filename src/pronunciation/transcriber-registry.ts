@@ -3,6 +3,7 @@ import type {
   TranscriptionResult,
 } from "../domain/types.js";
 import type { LanguageTranscriber, TranscriptionRequest } from "./language-transcriber.js";
+import { preservesLanguage } from "./language-transcriber.js";
 
 export class TranscriberRegistry {
   private transcribers = new Map<string, LanguageTranscriber>();
@@ -24,7 +25,7 @@ export class TranscriberRegistry {
       const normalizedLang = preferredLanguage.toLowerCase().split("-")[0] || "";
       for (const transcriber of this.transcribers.values()) {
         if (
-          transcriber.languages.some((l) => l.toLowerCase() === normalizedLang) &&
+          transcriber.languages.some((language) => language.toLowerCase() === normalizedLang) &&
           transcriber.canHandle({ text, language: preferredLanguage })
         ) {
           return transcriber;
@@ -43,44 +44,51 @@ export class TranscriberRegistry {
 
   transcribe(request: TranscriptionRequest): TranscriptionResult {
     const transcriber = this.resolve(request.text, request.sourceLanguage);
+    const systems: PhoneticSystem[] = request.allowedSystems.length > 0 ? request.allowedSystems : ["chinese"];
 
-    if (transcriber) {
-      return transcriber.transcribe(request);
+    if (!transcriber) {
+      return this.passthrough(request.text, "unknown", systems);
     }
 
-    // Passthrough
-    const systems = request.allowedSystems || ["chinese", "latin"];
+    const language = transcriber.languages[0] || "unknown";
+    if (preservesLanguage(request, language)) {
+      return this.passthrough(request.text, language, systems);
+    }
+
+    return transcriber.transcribe({ ...request, allowedSystems: systems });
+  }
+
+  listCapabilities(): Array<{ id: string; languages: readonly string[]; supportedSystems: readonly PhoneticSystem[] }> {
+    return Array.from(this.transcribers.values()).map((transcriber) => ({
+      id: transcriber.id,
+      languages: transcriber.languages,
+      supportedSystems: transcriber.supportedSystems,
+    }));
+  }
+
+  private passthrough(text: string, language: string, systems: PhoneticSystem[]): TranscriptionResult {
     return {
-      sourceText: request.text,
-      detectedLanguage: "unknown",
-      mode: request.mode || "streamlined",
+      sourceText: text,
+      detectedLanguage: language,
       allowedSystems: systems,
-      displayText: request.text,
+      displayText: text,
       syllables: [
         {
-          sourceText: request.text,
+          sourceText: text,
           onset: "",
           nucleus: "",
           fragments: [
             {
               system: systems[0] || "chinese",
               role: "base",
-              text: request.text,
-              phonemes: [request.text],
+              text,
+              phonemes: [text],
             },
           ],
-          displayText: request.text,
+          displayText: text,
           tier: "passthrough",
         },
       ],
     };
-  }
-
-  listCapabilities(): Array<{ id: string; languages: readonly string[]; supportedSystems: readonly PhoneticSystem[] }> {
-    return Array.from(this.transcribers.values()).map((t) => ({
-      id: t.id,
-      languages: t.languages,
-      supportedSystems: t.supportedSystems,
-    }));
   }
 }

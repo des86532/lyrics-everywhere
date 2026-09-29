@@ -100,8 +100,13 @@ export class CompanionServer {
             try {
               const data = JSON.parse(body || "{}");
               const updates: Record<string, unknown> = {};
-              if (data.mode === "streamlined" || data.mode === "precise") {
-                updates.mode = data.mode;
+              if (typeof data.targetLocale === "string" && ["zh-TW", "en", "ja", "ko"].includes(data.targetLocale)) {
+                updates.targetLocale = data.targetLocale;
+              }
+              if (Array.isArray(data.passthroughLanguages)) {
+                updates.passthroughLanguages = [...new Set(data.passthroughLanguages.filter((language: unknown): language is string =>
+                  typeof language === "string" && ["zh", "en", "ja", "ko"].includes(language)
+                ))];
               }
               if (Array.isArray(data.allowedSystems) && data.allowedSystems.length > 0) {
                 const systems = data.allowedSystems.filter((s: string) =>
@@ -389,19 +394,23 @@ export class CompanionServer {
         <span id="badge-text">連線中</span>
       </div>
     </div>
-    <!-- 兩段式模式切換 (流暢跟唱 vs 精準標註) -->
-    <div style="display:flex; gap:8px; margin-bottom:12px;">
-      <button id="btn-streamlined" style="flex:1; padding:10px; border-radius:12px; border:none; font-weight:700; cursor:pointer; background:${currentProfile.mode === 'streamlined' ? '#38bdf8; color:#0f172a;' : 'rgba(255,255,255,0.08); color:#94a3b8;'}" onclick="setPronunciationMode('streamlined')">
-        🎤 流暢跟唱（1音1字・推薦）
-      </button>
-      <button id="btn-precise" style="flex:1; padding:10px; border-radius:12px; border:none; font-weight:700; cursor:pointer; background:${currentProfile.mode === 'precise' ? '#38bdf8; color:#0f172a;' : 'rgba(255,255,255,0.08); color:#94a3b8;'}" onclick="setPronunciationMode('precise')">
-        ⚙️ 精準標註（顯示收音）
-      </button>
+    <div style="margin-bottom:12px; padding:12px; border-radius:12px; background:rgba(255,255,255,0.05);">
+      <label for="target-locale" style="display:block; margin-bottom:8px;">主要原文語言（非歌詞翻譯）</label>
+      <select id="target-locale" onchange="updateLanguages()" style="width:100%; padding:8px; border-radius:8px;">
+        <option value="zh-TW" ${currentProfile.targetLocale === "zh-TW" ? "selected" : ""}>繁體中文</option>
+        <option value="en" ${currentProfile.targetLocale === "en" ? "selected" : ""}>English</option>
+        <option value="ja" ${currentProfile.targetLocale === "ja" ? "selected" : ""}>日本語</option>
+        <option value="ko" ${currentProfile.targetLocale === "ko" ? "selected" : ""}>한국어</option>
+      </select>
+      <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:10px;">
+        <label class="chk-item"><input class="passthrough-language" type="checkbox" value="en" ${currentProfile.passthroughLanguages.includes("en") ? "checked" : ""} onchange="updateLanguages()"> 保留英文</label>
+        <label class="chk-item"><input class="passthrough-language" type="checkbox" value="ja" ${currentProfile.passthroughLanguages.includes("ja") ? "checked" : ""} onchange="updateLanguages()"> 保留日文</label>
+        <label class="chk-item"><input class="passthrough-language" type="checkbox" value="ko" ${currentProfile.passthroughLanguages.includes("ko") ? "checked" : ""} onchange="updateLanguages()"> 保留韓文</label>
+        <label class="chk-item"><input class="passthrough-language" type="checkbox" value="zh" ${currentProfile.passthroughLanguages.includes("zh") ? "checked" : ""} onchange="updateLanguages()"> 保留中文</label>
+      </div>
     </div>
-
-    <!-- 拼音工具勾選列 (僅在精準模式下展開) -->
-    <div id="systems-panel" class="system-selector" style="display:${currentProfile.mode === 'precise' ? 'flex' : 'none'};">
-      <span>拼音工具組合:</span>
+    <div class="system-selector" style="display:flex; margin-bottom:12px;">
+      <span>空耳顯示方式：</span>
       <label class="chk-item">
         <input type="checkbox" id="chk-chinese" ${allowed.includes("chinese") ? "checked" : ""} onchange="updateSystems()"> 🀄 中文漢字
       </label>
@@ -412,9 +421,8 @@ export class CompanionServer {
         <input type="checkbox" id="chk-bopomofo" ${allowed.includes("bopomofo") ? "checked" : ""} onchange="updateSystems()"> ㄅ 台灣注音
       </label>
     </div>
-
-    <div id="streamlined-badge" style="display:${currentProfile.mode === 'streamlined' ? 'block' : 'none'}; background:rgba(56, 189, 248, 0.08); border:1px solid rgba(56, 189, 248, 0.2); padding:8px 16px; border-radius:12px; margin-bottom:14px; font-size:0.8rem; color:#7dd3fc; text-align:center;">
-      ✨ 已啟用極簡模式：每個韓文音節對應一個常用漢字，字數極簡、絕不拖長，速度輕鬆跟上！
+    <div style="background:rgba(56, 189, 248, 0.08); border:1px solid rgba(56, 189, 248, 0.2); padding:8px 16px; border-radius:12px; margin-bottom:14px; font-size:0.8rem; color:#7dd3fc; text-align:center;">
+      ✨ 使用簡潔空耳；可指定原文語言，其他語言照常轉寫。
     </div>
     <!-- 全篇歌詞滾動檢視區 (全曲一次預載) -->
     <div id="lyrics-sheet" class="lyrics-sheet-container">
@@ -422,7 +430,6 @@ export class CompanionServer {
         正在預載全篇歌詞與混成空耳...
       </div>
     </div>
-
     <!-- 手動滾動時出現的快速回正提示 -->
     <button id="btn-return" class="btn-return-sync" onclick="returnToPlaying()">
       📍 回到目前段落
@@ -476,32 +483,14 @@ export class CompanionServer {
       }
     }
 
-    async function setPronunciationMode(mode) {
-      const btnStreamlined = document.getElementById("btn-streamlined");
-      const btnPrecise = document.getElementById("btn-precise");
-      const systemsPanel = document.getElementById("systems-panel");
-      const badge = document.getElementById("streamlined-badge");
-
-      if (mode === "streamlined") {
-        btnStreamlined.style.background = "#38bdf8";
-        btnStreamlined.style.color = "#0f172a";
-        btnPrecise.style.background = "rgba(255,255,255,0.08)";
-        btnPrecise.style.color = "#94a3b8";
-        systemsPanel.style.display = "none";
-        badge.style.display = "block";
-      } else {
-        btnPrecise.style.background = "#38bdf8";
-        btnPrecise.style.color = "#0f172a";
-        btnStreamlined.style.background = "rgba(255,255,255,0.08)";
-        btnStreamlined.style.color = "#94a3b8";
-        systemsPanel.style.display = "flex";
-        badge.style.display = "none";
-      }
-
+    async function updateLanguages() {
+      const targetLocale = document.getElementById("target-locale").value;
+      const passthroughLanguages = Array.from(document.querySelectorAll(".passthrough-language:checked"))
+        .map((input) => input.value);
       await fetch("/api/profile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode })
+        body: JSON.stringify({ targetLocale, passthroughLanguages })
       });
     }
 
