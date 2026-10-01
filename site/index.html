@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#0b1423">
+  <meta name="theme-color" content="#0b1017">
   <meta name="description" content="Lyrics Everywhere 在你的電腦讀取播放資訊並同步歌詞。Cloudflare 僅提供下載頁，不接收播放資料。">
   <title>Lyrics Everywhere｜跟上正在播放的歌</title>
   <link rel="stylesheet" href="/styles.css">
@@ -15,14 +15,23 @@
   </header>
   <main id="top">
     <section class="hero" aria-labelledby="hero-title">
-      <p class="eyebrow">本機播放資訊 · 即時同步歌詞</p>
-      <h1 id="hero-title">歌在播放，<br><span>歌詞跟得上。</span></h1>
-      <p class="intro">桌面程式在本機讀取正在播放的歌曲並同步歌詞。查歌詞時會向 LRCLIB 查詢；Cloudflare 這個網站只提供下載，不接收播放資訊。</p>
-      <a class="primary-link" href="#downloads">選擇你的桌面版本 <span aria-hidden="true">↓</span></a>
-      <div class="lyric-stage" aria-label="同步歌詞示意">
-        <p>聲音從你的播放器開始</p><p class="dim">搜尋歌詞，準備跟唱</p><p class="active-line"><span class="pulse" aria-hidden="true"></span>此刻唱到的這一句</p><p class="dim">下一句已經準備好了</p>
+      <div class="hero-copy">
+        <p class="eyebrow">本機播放資訊 · 即時同步歌詞</p>
+        <h1 id="hero-title">歌在播放，<br><span>歌詞跟得上。</span></h1>
+        <p class="intro">桌面程式在本機讀取正在播放的歌曲並同步歌詞。查歌詞時會向 LRCLIB 查詢；Cloudflare 這個網站只提供下載，不接收播放資訊。</p>
+        <a class="primary-link" href="#downloads">選擇你的桌面版本 <span aria-hidden="true">↓</span></a>
       </div>
-      <p class="caption">歌詞高亮為介面示意，實際結果依歌詞資料與播放資訊而定。</p>
+      <div class="hero-visual">
+        <div class="lyric-stage" aria-label="同步歌詞示意">
+          <p class="stage-label">LIVE LYRIC · 00:32</p>
+          <p class="dim">聲音從你的播放器開始</p>
+          <p class="dim">搜尋歌詞，準備跟唱</p>
+          <p class="active-line"><span class="pulse" aria-hidden="true"></span>此刻唱到的這一句</p>
+          <p class="phonetic-line">此刻 唱到 的 這 一句</p>
+          <p class="dim">下一句已經準備好了</p>
+        </div>
+        <p class="caption">歌詞高亮為介面示意，實際結果依歌詞資料與播放資訊而定。</p>
+      </div>
     </section>
 
     <section id="downloads" class="section downloads" aria-labelledby="downloads-title">
