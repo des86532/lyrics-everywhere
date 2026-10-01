@@ -45,7 +45,8 @@ Companion 歌詞頁提供唯一的簡潔空耳輸出。原文保留語言以同�
   - `transcriber-registry.ts`：多語言動態分流、原文語言保留與註冊中心。
 - `src/session/`：播放工作階段協調器 (`PlaybackSession`)，管理全曲歌譜生命週期與游標推播。
 - `src/ui/`：全曲歌詞滾動視圖與 Companion 伺服端 (`CompanionServer`)，提供 SSE 全曲/游標分流、語言偏好與手動滾動防干擾機制。
-
+- `src-tauri/src/server.rs`：Rust 本機 loopback server、Chrome extension ingest、SSE 與既有 profile API。
+- `src-tauri/src/runtime.rs`：平台媒體來源、LRCLIB 查詢、LRC 解析及來源優先序。
 ---
 
 ## 快速開始
@@ -99,13 +100,44 @@ macOS 正常模式可同時接收 Spotify 與 Chrome YouTube 來源。YouTube �
 3. 開啟 https://www.youtube.com/watch?v=... 或 https://music.youtube.com/ 播放歌曲，再開啟 http://localhost:3838。
 
 可用來源模式：
-- --source auto：macOS 優先保留目前播放中的來源；同時開始時 Spotify 優先，YouTube 可透過 browser report 接入。
+- --source auto：CLI 在 macOS 啟用 Spotify 與 Chrome YouTube；其他平台只啟用 Chrome YouTube。Windows 桌面版由 Tauri Rust runtime 同時啟用 SMTC 與 Chrome，兩者同時播放時 Chrome 優先。
 - --source youtube：只接收 Chrome YouTube extension。
-- --source spotify：只接收 macOS Spotify；非 macOS 會回報錯誤。
+- --source spotify：只接收 macOS Spotify；Windows 會提示改用 `--source auto`，因 Windows 不使用 macOS AppleScript connector。
 - --demo：使用內建模擬曲目，不偵測外部媒體。
 
 ### 支援範圍與限制
 
-目前支援目標為 macOS + Chrome Stable，涵蓋一般 YouTube watch 與 YouTube Music 的 title、artist、play/pause、position、duration、playback rate 與 SPA 換片；實際 Chrome 端到端驗收需依下列步驟載入 extension 後執行。Chrome extension 只把必要的播放 metadata 傳送到本機 127.0.0.1:3838；歌詞查詢仍會送至既有 LRCLIB client。
+macOS + Chrome Stable connector 涵蓋一般 YouTube watch 與 YouTube Music 的 title、artist、play/pause、position、duration、playback rate 與 SPA 換片；實際 Chrome 端到端驗收需依下列步驟載入 extension 後執行。Chrome extension 只把必要的播放 metadata 傳送到本機 127.0.0.1:3838；歌詞查詢仍會送至既有 LRCLIB client。
 
-一般 YouTube 的 channel 可能不是實際歌手，因此 artist 與 LRCLIB 命中是 best effort。Safari、未實測的 Chromium 衍生瀏覽器、Shorts、直播、投放到其他裝置與 DRM 不在支援承諾內。廣告不會被當成新 track；extension 或 companion 失聯超過 freshness TTL 後，來源會變成 unavailable。
+Windows SMTC 僅能讀取公開媒體工作階段；Windows 10／11 互動桌面與各播放器實機驗收尚未完成，未完成前不發布 Windows 安裝檔。一般 YouTube 的 channel 可能不是實際歌手，因此 artist 與 LRCLIB 命中是 best effort。Safari、未實測的 Chromium 衍生瀏覽器、Shorts、直播、投放到其他裝置與 DRM 不在支援承諾內。廣告不會被當成新 track；extension 或 companion 失聯超過 freshness TTL 後，來源會變成 unavailable。
+
+
+## 桌面版與 Windows 支援
+
+Windows 桌面版使用 Windows System Media Transport Controls (SMTC) 讀取播放中的公開媒體工作階段；不分析原始音訊。僅提供公開工作階段資訊的播放器可被偵測，標題或歌手缺失時不會假造曲目。Chrome YouTube／YouTube Music 仍由本機擴充功能傳送播放資訊。macOS Spotify AppleScript connector 保留。
+
+Tauri 桌面程式使用 Rust 建立本機 Companion、Windows SMTC、macOS Spotify connector 與歌詞服務，沿用既有 HTML/CSS 頁面及 TypeScript 轉寫器。桌面程式綁定 `127.0.0.1:3838`，不依賴 Electron、Node 或 .NET 執行期；Cloudflare Pages 只發布 `site/` 下載頁，沒有遠端 Companion 或共用播放 session。Chrome YouTube／YouTube Music 仍透過本機 extension 接入。
+
+### Rust 開發與桌面建置
+
+- 安裝 Node.js 22、pnpm 10、Rust stable 與 Tauri 所需平台 SDK。
+- 執行 `pnpm run desktop:dev` 啟動 Tauri 桌面版；執行 `pnpm run desktop:build` 建立目前平台安裝檔。
+- GitHub Actions CI 在 Windows 與 macOS 執行 TypeScript／Rust 驗證；正式安裝檔僅由手動 release workflow 建置。
+### 桌面安裝與驗收
+
+- GitHub Actions `.github/workflows/release.yml` 僅可手動執行。Windows 10／11 互動桌面實機驗收完成前，`windows_hardware_verified` 不得設為 true；未設時 workflow 只建置，不建立公開 Release。
+- Windows 首版目標為 x64 NSIS 安裝檔，macOS 產生 Apple silicon 與 Intel DMG。macOS 產物目前未配置 Developer ID 簽章或 notarization。
+- Chrome 擴充功能未上架 Chrome Web Store；請依 `browser-extension/README.md` 使用 unpacked extension。
+- 在 Windows 10／11 互動使用者桌面播放 Spotify 與 Chrome YouTube，驗證標題、進度、暫停、切歌及無媒體狀態後，才可發布 Windows 安裝檔。未執行實機驗收不得宣稱 Windows 播放器支援已驗收。
+
+### Cloudflare Pages
+
+`site/` 是獨立靜態頁，已部署於 https://lyrics-everywhere.pages.dev/。登入有 Pages 權限的 Cloudflare 帳號後，可用下列命令更新：
+
+```sh
+pnpm dlx wrangler whoami
+pnpm dlx wrangler pages project create lyrics-everywhere --production-branch main
+pnpm dlx wrangler pages deploy site --project-name lyrics-everywhere --branch main
+```
+
+若 Pages 專案已存在，略過 create。頁面從 GitHub Releases API 讀取最新版本，只有實際存在的資產會顯示下載連結。Cloudflare 不接收播放 metadata。

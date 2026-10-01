@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1423">
+  <meta name="description" content="Lyrics Everywhere 在你的電腦讀取播放資訊並同步歌詞。Cloudflare 僅提供下載頁，不接收播放資料。">
+  <title>Lyrics Everywhere｜跟上正在播放的歌</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#top" aria-label="Lyrics Everywhere 首頁"><span class="brand-mark" aria-hidden="true">♪</span> Lyrics Everywhere</a>
+    <nav aria-label="主要導覽"><a href="#downloads">下載</a><a href="#how-it-works">運作方式</a><a href="#support">支援範圍</a></nav>
+  </header>
+  <main id="top">
+    <section class="hero" aria-labelledby="hero-title">
+      <p class="eyebrow">本機播放資訊 · 即時同步歌詞</p>
+      <h1 id="hero-title">歌在播放，<br><span>歌詞跟得上。</span></h1>
+      <p class="intro">桌面程式在本機讀取正在播放的歌曲並同步歌詞。查歌詞時會向 LRCLIB 查詢；Cloudflare 這個網站只提供下載，不接收播放資訊。</p>
+      <a class="primary-link" href="#downloads">選擇你的桌面版本 <span aria-hidden="true">↓</span></a>
+      <div class="lyric-stage" aria-label="同步歌詞示意">
+        <p>聲音從你的播放器開始</p><p class="dim">搜尋歌詞，準備跟唱</p><p class="active-line"><span class="pulse" aria-hidden="true"></span>此刻唱到的這一句</p><p class="dim">下一句已經準備好了</p>
+      </div>
+      <p class="caption">歌詞高亮為介面示意，實際結果依歌詞資料與播放資訊而定。</p>
+    </section>
+
+    <section id="downloads" class="section downloads" aria-labelledby="downloads-title">
+      <div class="section-heading"><p class="eyebrow">桌面版與 Chrome 擴充功能</p><h2 id="downloads-title">下載安裝檔</h2><p>下載連結只會在 GitHub Release 有可用檔案時顯示。</p></div>
+      <div id="release-state" class="release-state" role="status" aria-live="polite">正在檢查最新發行版本…</div>
+      <div id="release-assets" class="asset-grid" hidden></div>
+      <noscript><p class="notice">請啟用 JavaScript，以便載入 GitHub 最新發行版本與可用安裝檔。</p></noscript>
+      <p class="checksum-note">每次桌面發行均附 <code>SHA256SUMS.txt</code>，可用來核對下載檔案。</p><p class="notice">Windows 安裝檔只會在 Windows 10／11 互動桌面驗收完成後發布。macOS 安裝檔未簽章或 notarize 時，首次開啟可能需要在系統設定允許。</p>
+    </section>
+
+    <section id="how-it-works" class="section split" aria-labelledby="local-title">
+      <div><p class="eyebrow">你的電腦執行 Companion</p><h2 id="local-title">本機讀取，雲端只供下載</h2></div>
+      <div class="copy"><p>桌面程式在這台電腦讀取公開的媒體工作階段並顯示歌詞。查歌詞時會將歌曲標題與歌手送至 LRCLIB 查詢；YouTube 與 YouTube Music 的 Chrome 擴充功能只連到同一台電腦上的 Companion。</p><p>Cloudflare Pages 只託管這個下載頁；不執行 Companion、不接收播放資訊，也不提供共用的遠端播放工作階段。</p></div>
+    </section>
+
+    <section id="support" class="section support" aria-labelledby="support-title">
+      <p class="eyebrow">支援範圍與限制</p><h2 id="support-title">先確認你的播放方式</h2>
+      <div class="support-grid">
+        <article><h3>Windows 10／11 · x64</h3><p>目標支援系統公開媒體工作階段的桌面播放器，以及 Chrome 中的 YouTube／YouTube Music。Windows 播放器實機驗收完成前不會發布安裝檔。Spotify 桌面版可能提供媒體資訊；不保證每個播放器都會公開工作階段。</p></article>
+        <article><h3>macOS · Apple silicon／Intel</h3><p>保留 macOS Spotify 桌面 connector，並支援 Chrome 中的 YouTube／YouTube Music。</p></article>
+        <article><h3>沒有偵測到歌曲？</h3><p>播放器需提供公開媒體工作階段與標題、歌手資訊。沒有媒體工作階段或缺少必要欄位時，應用程式會顯示無可用播放資訊；不會從原始聲音猜歌。</p></article>
+        <article><h3>歌詞可能找不到</h3><p>同步歌詞依既有歌詞資料來源提供。若查無歌詞，播放資訊仍在本機處理，介面會顯示沒有可用歌詞。</p></article>
+      </div>
+    </section>
+  </main>
+  <footer><span>Lyrics Everywhere</span><span>本機讀取播放資訊；歌詞由 LRCLIB 查詢。</span><a href="https://github.com/des86532/lyrics-everywhere/releases">在 GitHub 查看所有發行版本</a></footer>
+  <script src="/downloads.js" defer></script>
+</body>
+</html>

@@ -10,7 +10,7 @@ export class CompanionServer {
   constructor(private session: PlaybackSession, private port = 3838, private readonly browserMedia?: BrowserMediaConnector) {}
 
   start(): Promise<number> {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       // 1. 監聽全曲歌譜變更 (低頻全量推播)
       this.session.subscribeSheet((sheet) => {
         this.broadcast("lyrics-sheet", {
@@ -186,7 +186,9 @@ export class CompanionServer {
         res.end(this.renderHtml());
       });
 
+      this.server.once("error", reject);
       this.server.listen(this.port, "127.0.0.1", () => {
+        this.server?.removeListener("error", reject);
         const address = this.server?.address();
         resolve(typeof address === "object" && address ? address.port : this.port);
       });
