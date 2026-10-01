@@ -100,7 +100,7 @@ export class CompanionServer {
             try {
               const data = JSON.parse(body || "{}");
               const updates: Record<string, unknown> = {};
-              if (typeof data.targetLocale === "string" && ["zh-TW", "en", "ja", "ko"].includes(data.targetLocale)) {
+              if (typeof data.targetLocale === "string" && ["zh-TW", "zh-CN", "en", "ja", "ko"].includes(data.targetLocale)) {
                 updates.targetLocale = data.targetLocale;
               }
               if (Array.isArray(data.passthroughLanguages)) {

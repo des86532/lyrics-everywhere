@@ -29,6 +29,7 @@
 Companion 歌詞頁提供唯一的簡潔空耳輸出。原文保留語言以同一組多選控制，預設繁體中文且至少保留一種；選取語言維持原文，未選取語言照常轉寫。這些設定不是歌詞翻譯，也不會呼叫 AI 服務。
 
 拼音工具一次選擇一種顯示方式：中文漢字、台灣注音或英文字母；所選方式套用到轉寫結果。
+桌面版會將語言、空耳顯示方式與播放來源偏好保存於本機設定檔，重啟後沿用；偏好面板可重設為預設值。設定不會同步至雲端。
 
 ---
 
@@ -110,6 +111,7 @@ macOS 正常模式可同時接收 Spotify 與 Chrome YouTube 來源。YouTube �
 macOS + Chrome Stable connector 涵蓋一般 YouTube watch 與 YouTube Music 的 title、artist、play/pause、position、duration、playback rate 與 SPA 換片；實際 Chrome 端到端驗收需依下列步驟載入 extension 後執行。Chrome extension 只把必要的播放 metadata 傳送到本機 127.0.0.1:3838；歌詞查詢仍會送至既有 LRCLIB client。
 
 Windows SMTC 僅能讀取公開媒體工作階段；Windows 10／11 互動桌面與各播放器實機驗收尚未完成，未完成前不發布 Windows 安裝檔。一般 YouTube 的 channel 可能不是實際歌手，因此 artist 與 LRCLIB 命中是 best effort。Safari、未實測的 Chromium 衍生瀏覽器、Shorts、直播、投放到其他裝置與 DRM 不在支援承諾內。廣告不會被當成新 track；extension 或 companion 失聯超過 freshness TTL 後，來源會變成 unavailable。
+桌面介面提供首次使用步驟、目前來源狀態與 connector 診斷；Chrome connector 只有在支援的 YouTube 分頁回報時才可確認連線狀態，沒有 heartbeat 不代表擴充功能一定未安裝。歌詞找不到時可重試 LRCLIB、手動搜尋並選擇候選結果。
 
 
 ## 桌面版與 Windows 支援
@@ -117,6 +119,7 @@ Windows SMTC 僅能讀取公開媒體工作階段；Windows 10／11 互動桌面
 Windows 桌面版使用 Windows System Media Transport Controls (SMTC) 讀取播放中的公開媒體工作階段；不分析原始音訊。僅提供公開工作階段資訊的播放器可被偵測，標題或歌手缺失時不會假造曲目。Chrome YouTube／YouTube Music 仍由本機擴充功能傳送播放資訊。macOS Spotify AppleScript connector 保留。
 
 Tauri 桌面程式使用 Rust 建立本機 Companion、Windows SMTC、macOS Spotify connector 與歌詞服務，沿用既有 HTML/CSS 頁面及 TypeScript 轉寫器。桌面程式綁定 `127.0.0.1:3838`，不依賴 Electron、Node 或 .NET 執行期；Cloudflare Pages 只發布 `site/` 下載頁，沒有遠端 Companion 或共用播放 session。Chrome YouTube／YouTube Music 仍透過本機 extension 接入。
+桌面介面會提供開始使用指引與目前來源狀態；偏好與播放 metadata 保持本機，歌詞查詢、重試及候選選擇使用 LRCLIB。本產品不做原始音訊指紋辨識，也不翻譯歌詞。
 
 ### Rust 開發與桌面建置
 
