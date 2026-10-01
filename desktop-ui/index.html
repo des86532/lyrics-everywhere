@@ -1,329 +1,300 @@
-<!DOCTYPE html>
-<html lang="zh-TW">
+<!doctype html>
+<html lang="zh-Hant">
 <head>
   <meta charset="utf-8">
-  <title>Lyrics Everywhere — 全曲跟唱</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Lyrics Everywhere — 全曲跟唱</title>
   <style>
-    :root { color-scheme: dark; --canvas: #0b1017; --surface: #151e2a; --raised: #1b2735; --line: #2b3948; --ink: #e8edf2; --muted: #98a5b3; --sync: #89ced1; --phonetic: #ddbb78; --font-ui: "Avenir Next", "Segoe UI Variable", "Noto Sans TC", system-ui, sans-serif; --font-data: "SF Mono", "Cascadia Code", Consolas, monospace; font-family: var(--font-ui); font-synthesis: none; text-rendering: optimizeLegibility; }
-    * { box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; }
-    body { margin: 0; overflow: hidden; background: var(--canvas); color: var(--ink); }
-    button, input { font: inherit; }
-    button:focus-visible, summary:focus-visible, input:focus-visible { outline: 2px solid var(--sync); outline-offset: 3px; }
-    .workspace { position: relative; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; width: 100%; height: 100%; min-height: 0; padding: 26px clamp(24px, 5vw, 68px) 20px; background: radial-gradient(ellipse at 50% 42%, #182534 0%, var(--canvas) 68%); }
-    .topbar { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding-bottom: 22px; border-bottom: 1px solid var(--line); }
-    .track-meta { min-width: 0; }
-    .eyebrow { margin: 0 0 7px; color: var(--muted); font-size: .7rem; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
-    .track-title { overflow: hidden; color: var(--ink); font-size: clamp(1.15rem, 2vw, 1.45rem); font-weight: 650; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
-    .track-artist { margin-top: 4px; color: var(--muted); font-size: .9rem; }
-    .topbar-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 12px; }
-    .status-badge { display: inline-flex; align-items: center; gap: 9px; min-height: 38px; padding: 0 13px; border: 1px solid var(--line); border-radius: 999px; background: #111a24; color: var(--muted); font-size: .8rem; font-weight: 650; white-space: nowrap; }
-    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
-    .status-badge[data-state="playing"] { border-color: #89ced155; color: var(--sync); }
-    .status-badge[data-state="paused"] { border-color: #ddbb7855; color: var(--phonetic); }
-    .preferences { position: relative; }
-    .preferences summary { display: inline-flex; align-items: center; min-height: 38px; padding: 0 14px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); cursor: pointer; font-size: .82rem; font-weight: 650; list-style: none; }
-    .preferences summary::-webkit-details-marker { display: none; }
-    .preferences summary::after { content: "⌄"; margin-left: 9px; color: var(--sync); }
-    .preferences[open] summary::after { content: "⌃"; }
-    .preferences-panel { position: absolute; z-index: 20; top: calc(100% + 10px); right: 0; width: min(340px, calc(100vw - 32px)); padding: 20px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: 0 20px 55px #0009; }
-    .preferences-panel fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
-    .preferences-panel fieldset + fieldset { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--line); }
-    .preferences-panel legend { margin-bottom: 11px; color: var(--ink); font-size: .84rem; font-weight: 650; }
-    .preference-options { display: flex; flex-wrap: wrap; gap: 8px; }
-    .preference-option { display: inline-flex; align-items: center; min-height: 36px; padding: 0 11px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); cursor: pointer; font-size: .8rem; }
-    .preference-option:has(input:checked) { border-color: #89ced177; background: #89ced116; color: var(--ink); }
-    .preference-option input { margin: 0 7px 0 0; accent-color: var(--sync); }
-    .preference-note { margin: 12px 0 0; color: var(--muted); font-size: .76rem; line-height: 1.55; }
-    .lyrics-region { position: relative; display: flex; min-height: 0; flex-direction: column; }
-    .lyrics-heading { display: flex; align-items: center; justify-content: space-between; padding: 16px 0 2px; }
-    .lyrics-heading h2 { margin: 0; color: var(--muted); font-size: .72rem; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
-    .lyrics-sheet-container { flex: 1; min-height: 0; overflow-y: auto; padding: 22px clamp(4px, 5vw, 72px) 42px; scroll-behavior: smooth; scrollbar-color: #455464 transparent; scrollbar-width: thin; }
-    .lyric-row { position: relative; margin: 7px 0; padding: 16px 20px; border-radius: 9px; text-align: center; opacity: .68; transition: background-color .22s ease, opacity .22s ease; }
-    .lyric-row.active { border-left: 2px solid var(--sync); background: linear-gradient(90deg, #89ced11b, #89ced108 65%, transparent); opacity: 1; }
-    .original-text { color: #c3cbd4; font-size: clamp(1.2rem, 2.4vw, 1.65rem); font-weight: 560; line-height: 1.55; letter-spacing: .015em; overflow-wrap: anywhere; }
-    .lyric-row.active .original-text { color: var(--ink); font-weight: 720; }
-    .blended-homophone { margin-top: 7px; color: var(--phonetic); font-size: clamp(.98rem, 1.8vw, 1.15rem); font-weight: 600; line-height: 1.5; letter-spacing: .035em; overflow-wrap: anywhere; }
-    .lyric-row:not(.active) .blended-homophone { color: #c4a96f; }
-    .empty-state { max-width: 460px; margin: auto; padding: 40px 24px; color: var(--muted); text-align: center; line-height: 1.7; }
-    .empty-state strong { display: block; margin-bottom: 8px; color: var(--ink); font-size: 1.05rem; font-weight: 650; }
-    .btn-return-sync { position: absolute; z-index: 5; right: 18px; bottom: 16px; display: none; min-height: 40px; padding: 0 15px; border: 1px solid #89ced177; border-radius: 9px; background: #172530; color: var(--sync); cursor: pointer; font-size: .82rem; font-weight: 650; }
-    .btn-return-sync:hover { background: #203642; }
-    .playback-footer { display: grid; grid-template-columns: auto minmax(80px, 1fr) auto; align-items: center; gap: 15px; padding-top: 15px; border-top: 1px solid var(--line); color: var(--muted); font: 12px var(--font-data); font-variant-numeric: tabular-nums; }
-    .progress-track { height: 4px; overflow: hidden; border-radius: 99px; background: #34414e; }
-    .progress-fill { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--sync); transition: width .35s linear; }
-    @media (max-width: 760px) {
-      .workspace { padding: 18px 18px 14px; }
-      .topbar { align-items: flex-start; gap: 12px; padding-bottom: 15px; }
-      .topbar-actions { gap: 7px; }
-      .status-badge { min-height: 34px; padding: 0 10px; font-size: .72rem; }
-      .preferences summary { min-height: 34px; padding: 0 10px; font-size: .75rem; }
-      .lyrics-sheet-container { padding: 14px 2px 38px; }
-      .lyric-row { padding: 14px 10px; }
-      .playback-footer { gap: 9px; padding-top: 12px; }
-    }
-    @media (max-width: 520px) {
-      .workspace { padding: 14px 13px 12px; }
-      .topbar { flex-wrap: wrap; }
-      .track-meta { width: 100%; }
-      .topbar-actions { width: 100%; justify-content: space-between; }
-      .lyrics-heading { padding-top: 13px; }
-      .lyrics-sheet-container { padding-top: 9px; }
-      .lyric-row { padding-inline: 5px; }
-      .playback-footer { grid-template-columns: auto minmax(40px, 1fr) auto; font-size: 10px; }
-    }
-    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; } }
+    :root { color-scheme: dark; --canvas:#0b1017; --surface:#151e2a; --raised:#1b2735; --line:#2b3948; --ink:#e8edf2; --muted:#aab5c0; --sync:#89ced1; --gold:#ddbb78; --danger:#f0a4a0; --font-ui:"Avenir Next","Segoe UI Variable","Noto Sans TC",system-ui,sans-serif; --mono:"SF Mono",Consolas,monospace; font-family:var(--font-ui); font-synthesis:none; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-width:320px; min-height:100vh; background:radial-gradient(ellipse at 50% 15%,#182534 0,var(--canvas) 60%); color:var(--ink); }
+    button,input,select { font:inherit; }
+    button,a,summary,input,select { -webkit-tap-highlight-color:transparent; }
+    :focus-visible { outline:2px solid var(--sync); outline-offset:3px; }
+    button { min-height:42px; border:1px solid #496070; border-radius:9px; padding:8px 14px; background:#1c2a37; color:var(--ink); font-weight:650; cursor:pointer; }
+    button:hover { background:#263a49; }
+    button:disabled { opacity:.55; cursor:wait; }
+    a { color:var(--sync); text-underline-offset:3px; }
+    .shell { min-height:100vh; max-width:1160px; margin:auto; padding:24px clamp(16px,4vw,48px); display:grid; grid-template-rows:auto auto minmax(300px,1fr) auto; gap:18px; }
+    header { display:flex; justify-content:space-between; align-items:center; gap:20px; border-bottom:1px solid var(--line); padding-bottom:18px; }
+    .brand { margin:0; font-size:.82rem; letter-spacing:.16em; text-transform:uppercase; color:var(--sync); }
+    .tagline { margin:5px 0 0; color:var(--muted); font-size:.83rem; }
+    .head-actions { display:flex; align-items:center; gap:10px; }
+    .badge { display:inline-flex; align-items:center; gap:8px; min-height:38px; padding:0 13px; border:1px solid var(--line); border-radius:99px; color:var(--muted); background:#111a24; font-size:.83rem; font-weight:650; }
+    .badge::before { content:""; width:9px; height:9px; border-radius:50%; background:currentColor; }
+    .badge[data-state="playing"] { color:var(--sync); } .badge[data-state="paused"] { color:var(--gold); }
+    details.preferences { position:relative; }
+    details.preferences summary { list-style:none; cursor:pointer; min-height:42px; padding:10px 14px; border:1px solid var(--line); border-radius:9px; font-weight:650; }
+    details.preferences summary::-webkit-details-marker { display:none; }
+    details.preferences summary::after { content:"⌄"; margin-left:9px; color:var(--sync); }
+    details.preferences[open] summary::after { content:"⌃"; }
+    .panel { border:1px solid var(--line); border-radius:14px; background:#111a24; padding:18px; }
+    .preferences-panel { position:absolute; z-index:5; top:calc(100% + 8px); right:0; width:min(370px,calc(100vw - 32px)); box-shadow:0 18px 50px #0009; }
+    h2 { margin:0 0 10px; font-size:1rem; }
+    .pref-fields { display:grid; gap:15px; }
+    .field-label { display:block; margin-bottom:7px; font-size:.84rem; font-weight:700; }
+    select,input[type="text"] { width:100%; min-height:42px; border:1px solid #455666; border-radius:8px; padding:8px 10px; background:#0c141d; color:var(--ink); }
+    .muted,.note { color:var(--muted); font-size:.84rem; line-height:1.55; }
+    .note { margin:10px 0 0; }
+    .pref-footer { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:15px; }
+    .small-button { min-height:38px; padding:6px 11px; font-size:.82rem; }
+    .setup { display:grid; grid-template-columns:minmax(0,1fr) minmax(230px,.72fr); gap:20px; align-items:start; }
+    .setup h2 { margin-bottom:6px; }
+    .steps { margin:8px 0 0; padding-left:1.3rem; color:var(--muted); line-height:1.7; font-size:.88rem; }
+    .steps li+li { margin-top:3px; }
+    .platform-note { padding:14px; border-left:2px solid var(--gold); background:#ddbb780d; border-radius:0 8px 8px 0; color:var(--muted); font-size:.82rem; line-height:1.6; }
+    .platform-note p { margin:0 0 8px; } .platform-note p:last-child { margin-bottom:0; }
+    .status-line { display:flex; flex-wrap:wrap; gap:8px 16px; align-items:center; margin-top:12px; color:var(--muted); font-size:.82rem; }
+    .source-label { color:var(--ink); font-weight:700; }
+    .main { display:grid; grid-template-rows:auto minmax(190px,1fr) auto; min-height:0; }
+    .trackbar { display:flex; justify-content:space-between; align-items:center; gap:16px; border-bottom:1px solid var(--line); padding-bottom:14px; }
+    .track-title { margin:0; font-size:clamp(1.2rem,2.6vw,1.7rem); line-height:1.3; overflow-wrap:anywhere; }
+    .artist { margin:5px 0 0; color:var(--muted); }
+    .state-copy { max-width:280px; color:var(--muted); font-size:.86rem; text-align:right; }
+    .lyrics-heading { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:14px 0 3px; }
+    .lyrics-heading h2 { margin:0; color:var(--muted); font-size:.78rem; letter-spacing:.12em; text-transform:uppercase; }
+    #lyrics { min-height:0; overflow:auto; padding:8px clamp(0px,4vw,44px); scrollbar-color:#455464 transparent; }
+    .lyric-row { margin:6px 0; padding:13px 16px; border-radius:8px; text-align:center; opacity:.7; line-height:1.55; overflow-wrap:anywhere; }
+    .lyric-row.active { opacity:1; border-left:2px solid var(--sync); background:linear-gradient(90deg,#89ced11b,#89ced108 70%,transparent); }
+    .lyric-text { font-size:clamp(1.12rem,2.1vw,1.55rem); }
+    .lyric-row.active .lyric-text { font-weight:750; }
+    .phonetic { color:var(--gold); margin-top:5px; }
+    .empty { max-width:650px; margin:auto; padding:28px 10px; color:var(--muted); text-align:center; line-height:1.7; }
+    .empty strong { display:block; margin-bottom:6px; color:var(--ink); }
+    .actions { display:flex; flex-wrap:wrap; align-items:center; gap:9px; padding:12px 0 0; }
+    .secondary { background:transparent; }
+    .manual { margin-top:10px; }
+    .manual-form { display:grid; grid-template-columns:1fr 1fr auto; gap:10px; align-items:end; }
+    .candidates { display:grid; gap:8px; margin:12px 0 0; padding:0; list-style:none; }
+    .candidate { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:12px; border:1px solid var(--line); border-radius:9px; padding:12px; background:#0c141d; }
+    .candidate-title { font-weight:700; overflow-wrap:anywhere; }
+    .candidate-meta { margin-top:4px; color:var(--muted); font-size:.81rem; line-height:1.5; }
+    .candidate-type { display:inline-block; margin-top:5px; padding:2px 7px; border:1px solid #455666; border-radius:99px; font-size:.72rem; }
+    .footer { display:grid; grid-template-columns:auto minmax(70px,1fr) auto; align-items:center; gap:12px; padding-top:13px; border-top:1px solid var(--line); color:var(--muted); font:12px var(--mono); font-variant-numeric:tabular-nums; }
+    .progress { height:4px; background:#34414e; border-radius:99px; overflow:hidden; } .progress span { display:block; height:100%; width:0; background:var(--sync); }
+    [aria-live] { min-height:1.2em; }
+    @media(max-width:680px) { .shell { padding:16px 14px; gap:13px; grid-template-rows:auto auto minmax(350px,1fr) auto; } header { align-items:flex-start; flex-wrap:wrap; } .head-actions { width:100%; justify-content:space-between; } .setup { grid-template-columns:1fr; gap:12px; } .trackbar { align-items:flex-start; flex-direction:column; gap:8px; } .state-copy { max-width:none; text-align:left; } .manual-form { grid-template-columns:1fr; } .candidate { grid-template-columns:1fr; } .footer { gap:8px; font-size:10px; } }
+    @media(prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto!important; transition:none!important; } }
   </style>
 </head>
 <body>
-  <main class="workspace">
-    <header class="topbar">
-      <div class="track-meta">
-        <p class="eyebrow">Lyrics Everywhere · Local listening</p>
-        <h1 id="title" class="track-title">等待播放</h1>
-        <p id="artist" class="track-artist">在支援的桌面播放器或 Chrome YouTube 開始播放</p>
-      </div>
-      <div class="topbar-actions">
-        <div id="badge" class="status-badge" data-state="waiting" role="status" aria-live="polite">
-          <span class="status-dot" aria-hidden="true"></span>
-          <span id="badge-text">等待播放資訊</span>
-        </div>
-        <details class="preferences">
-          <summary aria-label="開啟顯示偏好">顯示偏好</summary>
-          <div class="preferences-panel">
-            <fieldset>
-              <legend>保留原文語言</legend>
-              <div class="preference-options">
-                <label class="preference-option"><input class="preserved-language" name="preserved-language" type="checkbox" value="zh" checked onchange="updateLanguages(event)">中文</label>
-                <label class="preference-option"><input class="preserved-language" name="preserved-language" type="checkbox" value="en" onchange="updateLanguages(event)">英文</label>
-                <label class="preference-option"><input class="preserved-language" name="preserved-language" type="checkbox" value="ja" onchange="updateLanguages(event)">日文</label>
-                <label class="preference-option"><input class="preserved-language" name="preserved-language" type="checkbox" value="ko" onchange="updateLanguages(event)">韓文</label>
-              </div>
-              <p class="preference-note">選取的語言保留原文；其他語言會依下方設定轉寫。至少保留一種語言。</p>
-            </fieldset>
-            <fieldset>
-              <legend>空耳顯示方式</legend>
-              <div class="preference-options">
-                <label class="preference-option"><input type="radio" name="phonetic-system" value="chinese" checked onchange="updateSystems()">漢字</label>
-                <label class="preference-option"><input type="radio" name="phonetic-system" value="latin" onchange="updateSystems()">英文字母</label>
-                <label class="preference-option"><input type="radio" name="phonetic-system" value="bopomofo" onchange="updateSystems()">注音</label>
-              </div>
-            </fieldset>
-          </div>
+  <div class="shell">
+    <header>
+      <div><p class="brand">Lyrics Everywhere</p><p class="tagline">歌詞跟著播放進度前進，只在這台電腦處理播放資訊。</p></div>
+      <div class="head-actions">
+        <span id="playback-badge" class="badge" data-state="idle">尚未播放</span>
+        <details class="preferences" id="preferences">
+          <summary>偏好設定</summary>
+          <section class="panel preferences-panel" aria-label="偏好設定">
+            <h2>本機偏好</h2>
+            <div class="pref-fields">
+              <div><label class="field-label" for="source-pref">播放來源</label><select id="source-pref" name="sourcePreference"></select></div>
+              <p class="note">「自動」會使用可用來源。Spotify 僅支援 macOS；Windows 使用有公開媒體工作階段的播放器。</p>
+              <div><label class="field-label" for="locale-pref">歌詞語言</label><select id="locale-pref" name="targetLocale"><option value="zh-TW">繁體中文</option><option value="zh-CN">简体中文</option><option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option></select></div>
+              <fieldset style="border:0;padding:0;margin:0"><legend class="field-label">空耳顯示方式</legend><div><label><input type="radio" name="allowedSystems" value="chinese"> 中文漢字</label> <label><input type="radio" name="allowedSystems" value="bopomofo"> 注音</label> <label><input type="radio" name="allowedSystems" value="latin"> 羅馬字</label></div></fieldset>
+              <fieldset style="border:0;padding:0;margin:0"><legend class="field-label">保留原文語言</legend><div><label><input type="checkbox" name="passthroughLanguages" value="zh"> 中文</label> <label><input type="checkbox" name="passthroughLanguages" value="en"> English</label> <label><input type="checkbox" name="passthroughLanguages" value="ja"> 日本語</label> <label><input type="checkbox" name="passthroughLanguages" value="ko"> 한국어</label></div></fieldset>
+            </div>
+            <div class="pref-footer"><button type="button" id="reset-profile" class="small-button secondary">還原預設值</button><span id="profile-status" class="muted" role="status" aria-live="polite">正在讀取本機設定…</span></div>
+            <p class="note">設定只儲存在本機 Companion，不會上傳至雲端。</p>
+          </section>
         </details>
       </div>
     </header>
-    <section class="lyrics-region" aria-labelledby="lyrics-heading">
-      <div class="lyrics-heading">
-        <h2 id="lyrics-heading">同步歌詞</h2>
-        <span class="eyebrow" aria-hidden="true">Follow the line</span>
+    <section class="panel setup" aria-labelledby="setup-title">
+      <div>
+        <h2 id="setup-title">開始使用</h2>
+        <p class="muted">先啟動支援的播放器。YouTube／YouTube Music 需要 Chrome 擴充功能：</p>
+        <ol class="steps"><li>開啟 Chrome 的 <code>chrome://extensions</code>，啟用「開發人員模式」。</li><li>選擇「載入未封裝項目」，指定解壓縮後的 <code>browser-extension</code> 資料夾。</li><li>在 Chrome 的 YouTube 或 YouTube Music 播放影片／歌曲。</li></ol>
+        <div id="source-status" class="status-line" role="status" aria-live="polite"><span>來源狀態載入中…</span></div>
       </div>
-      <div id="lyrics-sheet" class="lyrics-sheet-container" tabindex="0" aria-label="全曲同步歌詞">
-        <div class="empty-state"><strong>歌詞準備中</strong>正在等待播放資訊與同步歌詞。</div>
-      </div>
-      <button id="btn-return" class="btn-return-sync" type="button" onclick="returnToPlaying()">回到目前段落</button>
+      <aside class="platform-note" aria-label="支援範圍與發行狀態">
+        <p><strong>支援範圍</strong>：Chrome 中 YouTube／YouTube Music 的公開播放資訊；macOS Spotify。Windows 僅適用於提供公開系統媒體工作階段的播放器。</p>
+        <p>沒有來源與暫停是不同狀態；未播放、缺少標題／歌手或播放器未提供媒體工作階段時，無法顯示歌詞。</p>
+        <p>Windows 安裝檔發行前仍須完成互動式桌面實機驗收。macOS DMG 目前未簽署、未公證。</p>
+        <p>本工具不辨識原始音訊、不提供音訊指紋辨識或翻譯服務。下載項目請以實際發布資訊為準。</p>
+      </aside>
     </section>
-    <footer class="playback-footer" aria-label="歌曲播放進度">
-      <span id="time-info">00:00</span>
-      <div id="progress-track" class="progress-track" role="progressbar" aria-label="歌曲進度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="progress-fill" class="progress-fill"></span></div>
-      <span id="duration-info">--:--</span>
-    </footer>
-  </main>
-
-  <script type="module">
-    import { transcribeDisplayText } from "/assets/ui/transcriber-entry.js";
-    window.transcribeDisplayText = transcribeDisplayText;
-  </script>
-  <script>
-    const titleEl = document.getElementById("title");
-    const artistEl = document.getElementById("artist");
-    const sheetEl = document.getElementById("lyrics-sheet");
-    const badgeEl = document.getElementById("badge");
-    const badgeTextEl = document.getElementById("badge-text");
-    const timeInfoEl = document.getElementById("time-info");
-    const durationInfoEl = document.getElementById("duration-info");
-    const progressTrackEl = document.getElementById("progress-track");
-    const progressFillEl = document.getElementById("progress-fill");
-    const btnReturnEl = document.getElementById("btn-return");
-
-    let currentSheet = null;
-    let activeIndex = -1;
-    let manualScrollLockTimer = null;
-    let isUserScrolling = false;
-
-    function formatClock(milliseconds) {
-      const totalSeconds = Math.floor(Math.max(0, Number(milliseconds) || 0) / 1000);
-      return String(Math.floor(totalSeconds / 60)).padStart(2, "0") + ":" + String(totalSeconds % 60).padStart(2, "0");
-    }
-
-    function showEmptyState(title, message, state) {
-      if (sheetEl.dataset.state === state) return;
-      const notice = document.createElement("div");
-      notice.className = "empty-state";
-      const heading = document.createElement("strong");
-      heading.textContent = title;
-      notice.append(heading, document.createTextNode(message));
-      sheetEl.replaceChildren(notice);
-      sheetEl.dataset.state = state;
-    }
-
-
-    // 監聽使用者手動滾動 (4 秒防干擾保護)
-    sheetEl.addEventListener("wheel", triggerManualScroll);
-    sheetEl.addEventListener("touchstart", triggerManualScroll);
-
-    function triggerManualScroll() {
-      isUserScrolling = true;
-      btnReturnEl.style.display = "block";
-
-      if (manualScrollLockTimer) clearTimeout(manualScrollLockTimer);
-      manualScrollLockTimer = setTimeout(() => {
-        isUserScrolling = false;
-        btnReturnEl.style.display = "none";
-      }, 4000);
-    }
-
-    function returnToPlaying() {
-      isUserScrolling = false;
-      btnReturnEl.style.display = "none";
-      scrollToActiveLine();
-    }
-
-    function scrollToActiveLine() {
-      if (isUserScrolling) return;
-      const activeEl = document.querySelector(".lyric-row.active");
-      if (activeEl) {
-        activeEl.scrollIntoView({ behavior: "smooth", block: "center" });
-      }
-    }
-
-    async function updateLanguages(event) {
-      const preservedLanguages = Array.from(document.querySelectorAll(".preserved-language:checked"))
-        .map((input) => input.value);
-      if (preservedLanguages.length === 0) {
-        event.currentTarget.checked = true;
-        return;
-      }
-
-      const [primaryLanguage, ...passthroughLanguages] = preservedLanguages;
-      const targetLocale = primaryLanguage === "zh" ? "zh-TW" : primaryLanguage;
-      await fetch("/api/profile", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ targetLocale, passthroughLanguages })
-      });
-    }
-
-    async function updateSystems() {
-      const selected = document.querySelector('input[name="phonetic-system"]:checked')?.value || "chinese";
-      await fetch("/api/profile", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ allowedSystems: [selected] })
-      });
-    }
-
-    const events = new EventSource("/events");
-
-    // 1. 接收全篇歌譜清單 (換歌或偏好切換時整批推播)
-    events.addEventListener("lyrics-sheet", (e) => {
-      const data = JSON.parse(e.data);
-      if (data.track) {
-        titleEl.textContent = data.track.title;
-        artistEl.textContent = data.track.artists.join(", ");
-      }
-
-      currentSheet = data.sheet;
-      renderFullSheet(currentSheet);
+    <main class="panel main">
+      <div class="trackbar">
+        <div><p class="eyebrow" style="margin:0 0 5px;color:var(--muted);font-size:.72rem;letter-spacing:.14em">目前曲目</p><h1 class="track-title" id="track-title">等待播放</h1><p id="track-artist" class="artist">先啟動支援的播放器</p></div>
+        <div id="playback-message" class="state-copy" aria-live="polite">桌面播放器或 Chrome YouTube 尚未提供曲目。</div>
+      </div>
+      <section class="lyrics-region" aria-label="歌詞">
+        <div class="lyrics-heading"><h2>歌詞</h2><button id="return-to-current" class="small-button secondary" type="button" hidden>回到目前段落</button><span id="lyrics-state" class="muted" role="status" aria-live="polite">等待曲目</span></div>
+        <div id="lyrics" tabindex="0" aria-label="可捲動歌詞"><div class="empty"><strong>還沒有正在播放的曲目</strong>開始播放後，這裡會顯示可用歌詞與同步進度。</div></div>
+      </section>
+      <div>
+        <div class="actions"><button id="retry-lyrics" type="button" disabled>重新搜尋歌詞</button><button id="manual-toggle" class="secondary" type="button" aria-expanded="false" aria-controls="manual-panel" disabled>手動搜尋 LRCLIB</button><span id="lyrics-feedback" class="muted" role="status" aria-live="polite"></span></div>
+        <section id="manual-panel" class="panel manual" hidden>
+          <h2>手動搜尋 LRCLIB</h2><p class="note">可修改標題與歌手後搜尋；搜尋只傳送這兩項文字與目前曲目識別碼，不會傳送歌詞。</p>
+          <form id="search-form" class="manual-form"><div><label class="field-label" for="search-title">曲名</label><input id="search-title" name="title" type="text" required autocomplete="off"></div><div><label class="field-label" for="search-artist">歌手</label><input id="search-artist" name="artist" type="text" required autocomplete="off"></div><button type="submit">搜尋曲目</button></form>
+          <div id="candidate-status" class="muted" role="status" aria-live="polite"></div><ul id="candidates" class="candidates" aria-label="LRCLIB 搜尋結果"></ul>
+        </section>
+      </div>
+    </main>
+    <footer class="footer"><span id="elapsed">0:00</span><div class="progress" aria-hidden="true"><span id="progress"></span></div><span id="duration">0:00</span></footer>
+  </div>
+<script>
+(() => {
+  const $ = (selector) => document.querySelector(selector);
+  const els = { title:$("#track-title"), artist:$("#track-artist"), badge:$("#playback-badge"), message:$("#playback-message"), source:$("#source-status"), lyrics:$("#lyrics"), lyricsState:$("#lyrics-state"), retry:$("#retry-lyrics"), manualToggle:$("#manual-toggle"), manual:$("#manual-panel"), form:$("#search-form"), searchTitle:$("#search-title"), searchArtist:$("#search-artist"), candidateStatus:$("#candidate-status"), candidates:$("#candidates"), feedback:$("#lyrics-feedback"), progress:$("#progress"), elapsed:$("#elapsed"), duration:$("#duration"), profileStatus:$("#profile-status"), sourcePref:$("#source-pref"), locale:$("#locale-pref") };
+  let profileSettings = { targetLocale: "zh-TW", passthroughLanguages: [], allowedSystems: ["chinese"] };
+  let transcribeDisplayText = null;
+  void import("/assets/ui/transcriber-entry.js").then((module) => { transcribeDisplayText = module.transcribeDisplayText; renderLyrics(); }).catch(() => { els.feedback.textContent="注音轉寫模組無法載入，仍可檢視原文歌詞。"; });
+  let track = null, sheet = null, cursor = null, requestSerial = 0, searchSerial = 0;
+  let resumeScrollTimer = null;
+  window.userScrolledLyrics = false;
+  const sourceNames = {browser:"Chrome YouTube", "spotify-macos":"Spotify（macOS）", "windows-smtc":"Windows 系統媒體"};
+  const safe = (value) => typeof value === "string" ? value : "";
+  const formatTime = (ms) => { const seconds=Math.max(0,Math.floor((Number(ms)||0)/1000)); return `${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,"0")}`; };
+  function setText(node,value) { node.textContent=safe(value); }
+  function clearCandidates(message="") { els.candidates.replaceChildren(); setText(els.candidateStatus,message); }
+  function updateSource(data={}) {
+    if (!Object.prototype.hasOwnProperty.call(data,"diagnostics") && !Object.prototype.hasOwnProperty.call(data,"activeSource") && !Object.prototype.hasOwnProperty.call(data,"sourceName")) return;
+    const diagnostics=Array.isArray(data.diagnostics)?data.diagnostics:[];
+    const sourceName=(data.activeSource && sourceNames[data.activeSource]) || safe(data.sourceName) || "無";
+    const parts=[`目前來源：${sourceName}`];
+    if (!diagnostics.length) parts.push("尚無來源回報狀態；這不代表擴充功能未安裝。");
+    diagnostics.forEach((item)=>{
+      const name=sourceNames[item.id] || safe(item.id) || "播放來源";
+      const state=safe(item.state || item.mediaState);
+      const messages={connected:"已連線並提供播放資訊", "no-supported-tab":"尚無支援的 YouTube 分頁回報；不代表擴充功能未安裝", stale:"最新分頁訊號已逾時，請回到支援的 YouTube 分頁", "missing-metadata":"分頁已連線，但標題或歌手資訊不可用", error:"讀取播放來源失敗，請檢查桌面程式與擴充功能", available:"可用", paused:"媒體已暫停", "no-session":"目前沒有可讀取的媒體工作階段", "no-video":"支援分頁已連線，目前沒有影片", "no-media":"支援分頁已連線，目前沒有影片", waiting:"支援分頁已連線，等待播放資訊", ready:"YouTube 分頁有可用播放資訊"};
+      const status=messages[state] || safe(item.message) || (item.available ? "可用" : "尚未提供狀態");
+      parts.push(`${name}：${status}`);
     });
-
-    // 2. 接收每秒輕量游標更新
-    events.addEventListener("playback-update", (e) => {
-      const data = JSON.parse(e.data);
-      const cursor = data.cursor;
-
-      if (!cursor.trackKey) {
-        badgeEl.dataset.state = "waiting";
-        badgeTextEl.textContent = "等待播放資訊";
-        titleEl.textContent = "尚未偵測到媒體工作階段";
-        artistEl.textContent = "請在支援的桌面播放器或 Chrome YouTube 開始播放";
-        showEmptyState("尚未偵測到播放資訊", "播放器需公開歌曲標題與歌手，才能同步歌詞。", "waiting");
-        timeInfoEl.textContent = "00:00";
-        durationInfoEl.textContent = "--:--";
-        progressFillEl.style.width = "0%";
-        progressTrackEl.setAttribute("aria-valuenow", "0");
-        return;
-      }
-      badgeEl.dataset.state = cursor.isPlaying ? "playing" : "paused";
-      badgeTextEl.textContent = cursor.isPlaying ? "播放中" : "暫停";
-      timeInfoEl.textContent = formatClock(cursor.positionMs);
-      durationInfoEl.textContent = cursor.durationMs ? formatClock(cursor.durationMs) : "--:--";
-      const progress = Math.max(0, Math.min(100, Number(cursor.progressPercent) || 0));
-      progressFillEl.style.width = progress + "%";
-      progressTrackEl.setAttribute("aria-valuenow", String(progress));
-
-      if (cursor.currentLineIndex !== activeIndex) {
-        updateActiveLine(cursor.currentLineIndex);
-      }
+    els.source.replaceChildren(...parts.map((text)=>{const span=document.createElement("span"); span.textContent=text; return span;}));
+  }
+  function resetForTrack(next) {
+    track=next; sheet=null; cursor=null; requestSerial++; searchSerial++;
+    window.userScrolledLyrics=false; clearTimeout(resumeScrollTimer); $("#return-to-current").hidden=true;
+    els.manual.hidden=true; els.manualToggle.setAttribute("aria-expanded","false"); clearCandidates(); setText(els.feedback,"");
+    const initialArtist=Array.isArray(next?.artists)?next.artists.join(", "):safe(next?.artist); els.searchTitle.value=safe(next?.title); els.searchArtist.value=initialArtist;
+    els.retry.disabled=!next?.trackKey; els.manualToggle.disabled=!next?.trackKey;
+    if (!next) { els.title.textContent="等待播放"; els.artist.textContent="先啟動支援的播放器"; }
+    else { setText(els.title,next.title || "未提供曲名"); setText(els.artist,Array.isArray(next.artists)?next.artists.join(", "):next.artist || "未提供歌手資訊"); }
+    renderLyrics();
+  }
+  function renderLyrics() {
+    els.lyrics.replaceChildren();
+    if (!track) { els.lyricsState.textContent="等待曲目"; els.lyrics.append(empty("還沒有正在播放的曲目","開始播放後，這裡會顯示可用歌詞與同步進度。")); return; }
+    const status=safe(sheet?.status);
+    if (status !== "ready" || !Array.isArray(sheet?.lines) || sheet.lines.length===0) {
+      const labels={loading:"正在搜尋歌詞…", "not-found":"找不到歌詞", unavailable:"找不到歌詞", error:"歌詞服務發生錯誤"};
+      els.lyricsState.textContent=labels[status] || "等待歌詞";
+      const copy={loading:["正在尋找這首歌的歌詞","可以稍候，或使用下方按鈕重新搜尋。"], "not-found":["目前找不到歌詞","試試手動搜尋 LRCLIB，或確認曲名與歌手資訊。"], unavailable:["目前找不到歌詞","試試手動搜尋 LRCLIB，或確認曲名與歌手資訊。"], error:["歌詞載入失敗","請重新搜尋；如果問題持續，稍後再試。"]}[status] || ["等待歌詞","播放來源已提供曲目後，會在這裡尋找歌詞。"];
+      els.lyrics.append(empty(copy[0],copy[1])); return;
+    }
+    els.lyricsState.textContent="歌詞已載入";
+    sheet.lines.forEach((line,index)=>{
+      const row=document.createElement("article"); row.className="lyric-row";
+      row.dataset.lineId=safe(line.lineId);
+      if (cursor?.currentLineIndex===index || (cursor?.activeLineId && cursor.activeLineId===line.lineId)) { row.classList.add("active"); row.setAttribute("aria-current","true"); }
+      const original=document.createElement("div"); original.className="lyric-text"; original.textContent=safe(line.originalText ?? line.text ?? line.lyric);
+      row.append(original);
+      const phonetic=safe(line.pronunciation?.displayText ?? line.phonetic ?? line.blendedHomophone);
+      if (!phonetic && transcribeDisplayText) { const note=document.createElement("div"); note.className="phonetic"; note.textContent=transcribeDisplayText(original.textContent,profileSettings.allowedSystems,profileSettings.targetLocale,profileSettings.passthroughLanguages); if(note.textContent) row.append(note); }
+      if (phonetic) { const note=document.createElement("div"); note.className="phonetic"; note.textContent=phonetic; row.append(note); }
+      els.lyrics.append(row);
     });
-
-    function renderFullSheet(sheet) {
-      if (!sheet || !sheet.lines || sheet.lines.length === 0) {
-        const message = sheet?.status === "loading"
-          ? "正在查詢同步歌詞…"
-          : sheet?.status === "unavailable"
-            ? "沒有可用的同步歌詞。播放資訊會用來向 LRCLIB 查詢歌詞。"
-            : null;
-        if (message) {
-          const isLoading = sheet.status === "loading";
-          showEmptyState(isLoading ? "正在尋找歌詞" : "找不到同步歌詞", message, isLoading ? "lyrics-loading" : "lyrics-unavailable");
-        }
-        return;
-      }
-
-      sheetEl.dataset.state = "lyrics";
-      sheetEl.replaceChildren();
-      sheet.lines.forEach((line, idx) => {
-        const row = document.createElement("div");
-        row.className = "lyric-row" + (idx === activeIndex ? " active" : "");
-        row.id = "line-" + idx;
-
-        const origDiv = document.createElement("div");
-        origDiv.className = "original-text";
-        origDiv.textContent = line.originalText;
-
-        const pronDiv = document.createElement("div");
-        pronDiv.className = "blended-homophone";
-        const systems = [document.querySelector('input[name="phonetic-system"]:checked')?.value || "chinese"];
-        const preserved = Array.from(document.querySelectorAll(".preserved-language:checked")).map((input) => input.value);
-        const [primaryLanguage, ...passthrough] = preserved;
-        const targetLocale = primaryLanguage === "zh" ? "zh-TW" : primaryLanguage || "zh-TW";
-        pronDiv.textContent = line.pronunciation?.displayText || window.transcribeDisplayText?.(line.originalText, systems, targetLocale, passthrough) || "";
-
-        row.appendChild(origDiv);
-        row.appendChild(pronDiv);
-        sheetEl.appendChild(row);
-      });
-
-      scrollToActiveLine();
-    }
-
-    function updateActiveLine(newIndex) {
-      if (activeIndex >= 0) {
-        const prevActive = document.getElementById("line-" + activeIndex);
-        if (prevActive) prevActive.classList.remove("active");
-      }
-
-      activeIndex = newIndex;
-      if (activeIndex !== null && activeIndex >= 0) {
-        const currentActive = document.getElementById("line-" + activeIndex);
-        if (currentActive) {
-          currentActive.classList.add("active");
-          scrollToActiveLine();
-        }
-      }
-    }
-  </script>
+    syncActiveLine();
+  }
+  function syncActiveLine() {
+    let active=null;
+    els.lyrics.querySelectorAll(".lyric-row").forEach((row,index)=>{
+      const selected=cursor?.currentLineIndex===index || (!!cursor?.activeLineId && cursor.activeLineId===row.dataset.lineId);
+      row.classList.toggle("active",selected);
+      if (selected) { row.setAttribute("aria-current","true"); active=row; }
+      else row.removeAttribute("aria-current");
+    });
+    if (active && !window.userScrolledLyrics) active.scrollIntoView({block:"center",behavior:"smooth"});
+  }
+  function empty(title,copy) { const box=document.createElement("div"); box.className="empty"; const strong=document.createElement("strong"); strong.textContent=title; const text=document.createElement("span"); text.textContent=copy; box.append(strong,text); return box; }
+  function resumeCurrentLine() {
+    window.userScrolledLyrics=false; clearTimeout(resumeScrollTimer); $("#return-to-current").hidden=true;
+    const active=els.lyrics.querySelector(".active"); if(active) active.scrollIntoView({block:"center",behavior:"smooth"});
+  }
+  function pauseAutoScroll() {
+    window.userScrolledLyrics=true;
+    $("#return-to-current").hidden=!els.lyrics.querySelector(".active");
+    clearTimeout(resumeScrollTimer);
+    resumeScrollTimer=setTimeout(resumeCurrentLine,4000);
+  }
+  function setPlayback(data={}) {
+    updateSource(data);
+    let nextTrack=track;
+    if (data.track !== undefined) nextTrack=data.track;
+    else if (data.currentTrack !== undefined) nextTrack=data.currentTrack;
+    else if (data.cursor && Object.prototype.hasOwnProperty.call(data.cursor,"trackKey") && data.cursor.trackKey!==track?.trackKey) nextTrack=null;
+    if ((nextTrack?.trackKey || null)!==(track?.trackKey || null)) resetForTrack(nextTrack);
+    cursor=data.cursor || cursor;
+    const state=safe(data.state || data.playbackState || cursor?.state || nextTrack?.state).toLowerCase();
+    const paused=state.includes("pause") || (!!track && cursor?.isPlaying===false && !state.includes("stop") && !state.includes("unavailable")); const playing=state.includes("play") || cursor?.isPlaying===true;
+    const hasTrack=!!track;
+    els.badge.dataset.state=playing?"playing":paused?"paused":"idle";
+    els.badge.textContent=playing?"播放中":paused?"已暫停":hasTrack?"已連線":"尚未播放";
+    if (paused) els.message.textContent="播放器已暫停。繼續播放後，歌詞進度會恢復。";
+    else if (playing) els.message.textContent="歌詞會依播放器提供的進度同步。";
+    else if (hasTrack) els.message.textContent="來源已提供曲目，但目前沒有播放進度。";
+    else els.message.textContent="桌面播放器或 Chrome YouTube 尚未提供曲目。";
+    const position=data.positionMs ?? cursor?.positionMs ?? 0, duration=data.durationMs ?? cursor?.durationMs ?? 0;
+    els.elapsed.textContent=formatTime(position); els.duration.textContent=formatTime(duration);
+    els.progress.style.width=Number(duration)>0?`${Math.min(100,Math.max(0,Number(position)/Number(duration)*100))}%`:"0%";
+    if (data.track?.trackKey && sheet?.trackKey!==data.track.trackKey) { sheet=null; renderLyrics(); }
+    syncActiveLine();
+  }
+  async function api(path,body) {
+    const response=await fetch(path,{method:body===undefined?"GET":"POST",headers:body===undefined?{}:{"Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body)});
+    let payload={}; try { payload=await response.json(); } catch {}
+    if (!response.ok) throw new Error(safe(payload.error || payload.message) || `請求失敗（${response.status}）`);
+    return payload;
+  }
+  function sourceOptions(supported=[]) {
+    const choices=[{id:"auto",label:"自動選擇"},{id:"browser",label:"Chrome YouTube"}];
+    ["spotify-macos","windows-smtc"].forEach((id)=>{ if (supported.includes(id)) choices.push({id,label:sourceNames[id]}); });
+    els.sourcePref.replaceChildren(...choices.map(({id,label})=>{const option=document.createElement("option"); option.value=id; option.textContent=label; return option;}));
+  }
+  function setProfile(profile={}) {
+    if (profile.targetLocale) els.locale.value=profile.targetLocale;
+    const supported=profile.supportedSources || [];
+    sourceOptions(supported);
+    if (profile.sourcePreference && [...els.sourcePref.options].some((o)=>o.value===profile.sourcePreference)) els.sourcePref.value=profile.sourcePreference;
+    const allowed=Array.isArray(profile.allowedSystems)?profile.allowedSystems:[];
+    profileSettings = { targetLocale: profile.targetLocale || "zh-TW", passthroughLanguages: Array.isArray(profile.passthroughLanguages) ? profile.passthroughLanguages : [], allowedSystems: allowed };
+    document.querySelectorAll('input[name="passthroughLanguages"]').forEach((input)=>{input.checked=profileSettings.passthroughLanguages.includes(input.value);});
+    renderLyrics();
+    document.querySelectorAll('input[name="allowedSystems"]').forEach((input)=>{input.checked=allowed.includes(input.value);});
+  }
+  let saveChain=Promise.resolve();
+  function saveProfile(patch) {
+    saveChain=saveChain.then(async()=>{ els.profileStatus.textContent="正在儲存…"; try { await api("/api/profile",patch); const result=await api("/api/profile"); if(result.profile) setProfile({...result.profile,supportedSources:result.supportedSources}); els.profileStatus.textContent="已儲存在本機"; } catch(error) { els.profileStatus.textContent=`儲存失敗：${error.message}`; } });
+    return saveChain;
+  }
+  async function loadProfile() { try {const result=await api("/api/profile"); if(result.profile) setProfile({...result.profile,supportedSources:result.supportedSources}); els.profileStatus.textContent="已載入本機設定";} catch(error) { els.profileStatus.textContent=`讀取失敗：${error.message}`;} }
+  els.sourcePref.addEventListener("change",()=>void saveProfile({sourcePreference:els.sourcePref.value}));
+  els.locale.addEventListener("change",()=>void saveProfile({targetLocale:els.locale.value}));
+  document.querySelectorAll('input[name="passthroughLanguages"]').forEach((input)=>input.addEventListener("change",()=>saveProfile({passthroughLanguages:[...document.querySelectorAll('input[name="passthroughLanguages"]:checked')].map((item)=>item.value)})));
+  document.querySelectorAll('input[name="allowedSystems"]').forEach((input)=>input.addEventListener("change",()=>{
+    const selected=[...document.querySelectorAll('input[name="allowedSystems"]:checked')].map((item)=>item.value);
+    if (!selected.length) { input.checked=true; els.profileStatus.textContent="請至少保留一種轉寫系統"; return; }
+    void saveProfile({allowedSystems:selected});
+  }));
+  $("#reset-profile").addEventListener("click",()=>{saveChain=saveChain.then(async()=>{els.profileStatus.textContent="正在還原…"; try{await api("/api/profile",{reset:true}); const result=await api("/api/profile"); if(result.profile) setProfile({...result.profile,supportedSources:result.supportedSources}); els.profileStatus.textContent="已還原預設值並儲存在本機";}catch(error){els.profileStatus.textContent=`還原失敗：${error.message}`;}});});
+  $("#return-to-current").addEventListener("click",resumeCurrentLine);
+  ["wheel","touchstart","touchmove"].forEach((type)=>els.lyrics.addEventListener(type,pauseAutoScroll,{passive:true}));
+  els.lyrics.addEventListener("keydown",(event)=>{if(["ArrowUp","ArrowDown","PageUp","PageDown","Home","End"].includes(event.key)) pauseAutoScroll();});
+  els.manualToggle.addEventListener("click",()=>{const open=els.manual.hidden; els.manual.hidden=!open; els.manualToggle.setAttribute("aria-expanded",String(open)); if(open) els.searchTitle.focus();});
+  els.retry.addEventListener("click",async()=>{const key=track?.trackKey;if(!key)return; const serial=++requestSerial; els.retry.disabled=true; els.lyricsState.textContent="正在重新搜尋…"; setText(els.feedback,"正在重新搜尋歌詞…"); try{await api("/api/lyrics/retry",{trackKey:key}); if(track?.trackKey===key && serial===requestSerial) els.feedback.textContent="已要求重新搜尋。";}catch(error){if(track?.trackKey===key) els.feedback.textContent=`重新搜尋失敗：${error.message}`;}finally{if(track?.trackKey===key) els.retry.disabled=false;}});
+  els.form.addEventListener("submit",async(event)=>{event.preventDefault(); const key=track?.trackKey; if(!key)return; const title=els.searchTitle.value.trim(), artist=els.searchArtist.value.trim(); const serial=++searchSerial; clearCandidates("正在搜尋 LRCLIB…"); try{const result=await api("/api/lyrics/search",{trackKey:key,title,artist}); if(track?.trackKey!==key || serial!==searchSerial)return; const candidates=Array.isArray(result.candidates)?result.candidates:[]; if(!candidates.length){clearCandidates("沒有符合的曲目。請調整曲名或歌手後重試。");return;} clearCandidates(`${candidates.length} 個搜尋結果`); candidates.forEach((candidate)=>{
+      const li=document.createElement("li"); li.className="candidate"; const info=document.createElement("div"); const titleNode=document.createElement("div"); titleNode.className="candidate-title"; titleNode.textContent=safe(candidate.trackName)||"未提供曲名"; const meta=document.createElement("div"); meta.className="candidate-meta"; const details=[safe(candidate.artistName),safe(candidate.albumName)].filter(Boolean); meta.textContent=details.join(" · ") || "未提供歌手或專輯資訊"; const type=document.createElement("span"); type.className="candidate-type"; type.textContent=candidate.synced?"同步歌詞":"純歌詞"; info.append(titleNode,meta,type); const duration=document.createElement("div"); duration.className="candidate-meta"; duration.textContent=Number.isFinite(Number(candidate.duration))&&Number(candidate.duration)>0?formatTime(Number(candidate.duration)*1000):"未提供長度"; const select=document.createElement("button"); select.type="button"; select.textContent="選擇此版本"; select.addEventListener("click",async()=>{if(track?.trackKey!==key)return; select.disabled=true; try{await api("/api/lyrics/select",{trackKey:key,recordId:candidate.id}); if(track?.trackKey===key){clearCandidates("已選擇此版本，正在載入歌詞…"); els.feedback.textContent="選擇只套用於目前播放工作階段。";}}catch(error){if(track?.trackKey===key){els.candidateStatus.textContent=`選擇失敗：${error.message}`; select.disabled=false;}}}); li.append(info,duration,select); els.candidates.append(li);
+    });}catch(error){if(track?.trackKey===key && serial===searchSerial)clearCandidates(`搜尋失敗：${error.message}。請稍後再試。`);}});
+  const events=new EventSource("/events");
+  events.addEventListener("lyrics-sheet",(event)=>{try{const data=JSON.parse(event.data); const incomingTrack=data.track || null; if(incomingTrack?.trackKey && incomingTrack.trackKey!==track?.trackKey) resetForTrack(incomingTrack); else if(incomingTrack && !track) resetForTrack(incomingTrack); if(!track || (data.sheet?.trackKey && data.sheet.trackKey!==track.trackKey)) return; sheet=data.sheet || null; renderLyrics(); if(sheet?.status==="not-found" || sheet?.status==="unavailable") els.lyricsState.textContent="找不到歌詞"; else if(sheet?.status==="error") els.lyricsState.textContent="歌詞服務發生錯誤";}catch{els.lyricsState.textContent="歌詞狀態無法讀取";}});
+  events.addEventListener("playback-update",(event)=>{try{setPlayback(JSON.parse(event.data));}catch{els.message.textContent="播放狀態讀取失敗，請確認桌面程式仍在執行。";}});
+  events.addEventListener("source-diagnostics",(event)=>{try{updateSource(JSON.parse(event.data));}catch{els.source.textContent="播放來源診斷無法讀取";}});
+  events.onerror=()=>{els.message.textContent="無法連線到本機 Companion，請確認桌面程式仍在執行。";};
+  void loadProfile();
+})();
+</script>
 </body>
 </html>

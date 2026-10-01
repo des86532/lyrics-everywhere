@@ -23,6 +23,10 @@
     return channel ? [channel] : [];
   }
   function isAd() { return Boolean(document.querySelector(".ad-showing, .video-ads.ytp-ad-module")); }
+  function heartbeat() {
+    const mediaState = !currentVideo ? "no-video" : title() && artists().length ? "ready" : "missing-metadata";
+    chrome.runtime.sendMessage({ type: "connector-heartbeat", appId: appId(), pageUrl: location.href, mediaState });
+  }
   function report() {
     if (!currentVideo || isAd()) return;
     const id = videoId();
@@ -51,6 +55,7 @@
     });
     report();
   }
+  heartbeat();
   setInterval(() => {
     if (location.href !== currentUrl) {
       listeners.forEach(([name, handler]) => currentVideo?.removeEventListener(name, handler));
@@ -59,6 +64,7 @@
       listeners = [];
     }
     bind();
+    heartbeat();
     report();
-  }, 1000);
+  }, 2500);
 })();

@@ -9,7 +9,7 @@ use std::{
 
 use axum::{
     body::Body,
-    extract::{DefaultBodyLimit, State},
+    extract::{rejection::JsonRejection, DefaultBodyLimit, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{
         sse::{Event, KeepAlive, Sse},
@@ -91,6 +91,7 @@ pub struct Profile {
     pub target_locale: String,
     pub passthrough_languages: Vec<String>,
     pub allowed_systems: Vec<String>,
+    pub source_preference: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -118,6 +119,19 @@ pub struct StoredReport {
     pub report: BrowserReport,
     pub received_at_ms: u64,
 }
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserHeartbeat {
+    pub app_id: String,
+    pub page_url: String,
+    pub tab_id: Value,
+    pub media_state: Option<String>,
+}
+#[derive(Clone)]
+pub struct StoredHeartbeat {
+    pub media_state: Option<String>,
+    pub received_at_ms: u64,
+}
 #[derive(Clone)]
 pub struct WireEvent {
     pub name: String,
@@ -130,6 +144,10 @@ pub struct SessionState {
     pub active_source: Option<String>,
     pub active_browser_key: Option<String>,
     pub revision: u64,
+    pub diagnostics: Vec<Value>,
+    pub manual_lyrics: bool,
+    pub lyric_candidate_track_key: Option<String>,
+    pub lyric_candidate_ids: Vec<u64>,
     pub profile: Profile,
 }
 #[derive(Clone)]
@@ -137,11 +155,15 @@ pub struct AppState {
     pub session: Arc<Mutex<SessionState>>,
     pub reports: Arc<Mutex<HashMap<String, StoredReport>>>,
     pub events: broadcast::Sender<WireEvent>,
+    pub profile_path: Arc<PathBuf>,
+    pub heartbeat: Arc<Mutex<Option<StoredHeartbeat>>>,
+    pub browser_error: Arc<Mutex<Option<String>>>,
 }
 
 impl AppState {
-    pub fn new() -> Self {
+    pub fn new(profile_path: PathBuf) -> Self {
         let (events, _) = broadcast::channel(64);
+        let profile = load_profile(&profile_path);
         Self {
             session: Arc::new(Mutex::new(SessionState {
                 snapshot: Snapshot {
@@ -155,14 +177,17 @@ impl AppState {
                 active_source: None,
                 active_browser_key: None,
                 revision: 0,
-                profile: Profile {
-                    target_locale: "zh-TW".into(),
-                    passthrough_languages: Vec::new(),
-                    allowed_systems: vec!["chinese".into()],
-                },
+                diagnostics: Vec::new(),
+                manual_lyrics: false,
+                lyric_candidate_track_key: None,
+                lyric_candidate_ids: Vec::new(),
+                profile,
             })),
             reports: Arc::new(Mutex::new(HashMap::new())),
             events,
+            profile_path: Arc::new(profile_path),
+            heartbeat: Arc::new(Mutex::new(None)),
+            browser_error: Arc::new(Mutex::new(None)),
         }
     }
     pub fn emit(&self, name: &str, data: Value) {
@@ -194,7 +219,14 @@ pub async fn serve(
             "/api/media/browser",
             post(browser_report).options(browser_options),
         )
-        .route("/api/profile", post(update_profile))
+        .route("/api/profile", get(get_profile).post(update_profile))
+        .route(
+            "/api/media/browser/heartbeat",
+            post(browser_heartbeat).options(browser_options),
+        )
+        .route("/api/lyrics/retry", post(crate::runtime::retry_lyrics))
+        .route("/api/lyrics/search", post(crate::runtime::search_lyrics))
+        .route("/api/lyrics/select", post(crate::runtime::select_lyrics))
         .nest_service("/assets", ServeDir::new(assets))
         .layer(DefaultBodyLimit::max(64 * 1024))
         .with_state(state);
@@ -223,6 +255,16 @@ async fn events(
         }}
     };
     Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+pub(crate) fn source_name(source: &str) -> &str {
+    match source {
+        "browser" => "Chrome / YouTube",
+        "spotify-macos" => "Spotify (macOS)",
+        "windows-smtc" => "Windows media session",
+        "mock" => "Demo",
+        _ => source,
+    }
 }
 
 fn cursor_data(session: &SessionState) -> Value {
@@ -256,7 +298,22 @@ fn cursor_data(session: &SessionState) -> Value {
                 .round()
                 .clamp(0.0, 100.0) as u8
         });
-    json!({"cursor": {"trackKey": session.snapshot.track.as_ref().map(|track| track.track_key.clone()), "currentLineIndex": current_line_index, "activeLineId": active_line_id, "positionMs": position, "durationMs": duration, "progressPercent": progress, "isPlaying": session.snapshot.state == "playing"}})
+    json!({
+        "track": session.snapshot.track,
+        "state": session.snapshot.state,
+        "activeSource": session.active_source,
+        "sourceName": session.active_source.as_deref().map(source_name),
+        "diagnostics": session.diagnostics,
+        "cursor": {
+            "trackKey": session.snapshot.track.as_ref().map(|track| track.track_key.clone()),
+            "currentLineIndex": current_line_index,
+            "activeLineId": active_line_id,
+            "positionMs": position,
+            "durationMs": duration,
+            "progressPercent": progress,
+            "isPlaying": session.snapshot.state == "playing"
+        }
+    })
 }
 
 async fn browser_options(headers: HeaderMap) -> Response {
@@ -264,7 +321,7 @@ async fn browser_options(headers: HeaderMap) -> Response {
         .get(header::ORIGIN)
         .and_then(|value| value.to_str().ok())
         .unwrap_or("");
-    if !origin.starts_with("chrome-extension://") {
+    if !valid_extension_origin(origin) {
         return StatusCode::FORBIDDEN.into_response();
     }
     cors_response(StatusCode::NO_CONTENT, origin, Body::empty())
@@ -279,7 +336,7 @@ async fn browser_report(
         .get(header::ORIGIN)
         .and_then(|value| value.to_str().ok())
         .unwrap_or("");
-    if !origin.starts_with("chrome-extension://") {
+    if !valid_extension_origin(origin) {
         return (
             StatusCode::FORBIDDEN,
             Json(json!({"error":"browser reports require a Chrome extension origin"})),
@@ -287,12 +344,14 @@ async fn browser_report(
             .into_response();
     }
     if let Err(reason) = validate_report(&report) {
+        *state.browser_error.lock().await = Some("Chrome could not provide supported media information. Reload the supported tab and extension.".into());
         return cors_response(
             StatusCode::BAD_REQUEST,
             origin,
             Body::from(json!({"error":reason}).to_string()),
         );
     }
+    *state.browser_error.lock().await = None;
     let key = format!("{}:{}", report.tab_id, report.session_id);
     state.reports.lock().await.insert(
         key,
@@ -302,6 +361,87 @@ async fn browser_report(
         },
     );
     cors_response(StatusCode::NO_CONTENT, origin, Body::empty())
+}
+
+async fn browser_heartbeat(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(heartbeat): Json<BrowserHeartbeat>,
+) -> Response {
+    let origin = headers
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    if !valid_extension_origin(origin) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let valid_tab = match &heartbeat.tab_id {
+        Value::String(value) => !value.is_empty() && value.chars().count() <= 128,
+        Value::Number(value) => value.as_u64().is_some(),
+        _ => false,
+    };
+    if !matches!(heartbeat.app_id.as_str(), "youtube" | "youtube-music") || !valid_tab {
+        return cors_response(
+            StatusCode::BAD_REQUEST,
+            origin,
+            Body::from("invalid browser heartbeat"),
+        );
+    }
+    let page = match Url::parse(&heartbeat.page_url) {
+        Ok(page) => page,
+        Err(_) => {
+            return cors_response(
+                StatusCode::BAD_REQUEST,
+                origin,
+                Body::from("invalid page url"),
+            )
+        }
+    };
+    if page.scheme() != "https"
+        || !matches!(
+            page.host_str(),
+            Some("www.youtube.com" | "music.youtube.com")
+        )
+        || (heartbeat.app_id == "youtube" && page.host_str() != Some("www.youtube.com"))
+        || (heartbeat.app_id == "youtube-music" && page.host_str() != Some("music.youtube.com"))
+    {
+        return cors_response(
+            StatusCode::BAD_REQUEST,
+            origin,
+            Body::from("unsupported page"),
+        );
+    }
+    if heartbeat
+        .media_state
+        .as_deref()
+        .is_some_and(|v| !["no-video", "ready", "missing-metadata"].contains(&v))
+    {
+        return cors_response(
+            StatusCode::BAD_REQUEST,
+            origin,
+            Body::from("invalid media state"),
+        );
+    }
+    *state.heartbeat.lock().await = Some(StoredHeartbeat {
+        media_state: heartbeat.media_state,
+        received_at_ms: now_ms(),
+    });
+    cors_response(StatusCode::NO_CONTENT, origin, Body::empty())
+}
+
+fn valid_extension_origin(origin: &str) -> bool {
+    Url::parse(origin).is_ok_and(|url| {
+        url.scheme() == "chrome-extension"
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.port().is_none()
+            && url.query().is_none()
+            && url.fragment().is_none()
+            && matches!(url.path(), "" | "/")
+            && url.host_str().is_some_and(|host| {
+                host.len() == 32 && host.bytes().all(|byte| (b'a'..=b'p').contains(&byte))
+            })
+    })
 }
 
 fn cors_response(status: StatusCode, origin: &str, body: Body) -> Response {
@@ -389,58 +529,166 @@ fn validate_report(report: &BrowserReport) -> Result<(), &'static str> {
     Ok(())
 }
 
+const PROFILE_VERSION: u32 = 1;
+
+fn default_profile() -> Profile {
+    Profile {
+        target_locale: "zh-TW".into(),
+        passthrough_languages: vec![],
+        allowed_systems: vec!["chinese".into()],
+        source_preference: "auto".into(),
+    }
+}
+#[derive(Serialize, Deserialize)]
+struct VersionedProfile {
+    version: u32,
+    profile: Profile,
+}
+fn validate_profile(profile: &Profile) -> bool {
+    ["zh-TW", "zh-CN", "en", "ja", "ko"].contains(&profile.target_locale.as_str())
+        && profile.passthrough_languages.len() <= 4
+        && profile
+            .passthrough_languages
+            .iter()
+            .all(|v| ["zh", "en", "ja", "ko"].contains(&v.as_str()))
+        && !profile.allowed_systems.is_empty()
+        && profile.allowed_systems.len() <= 3
+        && profile
+            .allowed_systems
+            .iter()
+            .all(|v| ["chinese", "bopomofo", "latin"].contains(&v.as_str()))
+        && ["auto", "browser", "spotify-macos", "windows-smtc"]
+            .contains(&profile.source_preference.as_str())
+        && source_supported(&profile.source_preference)
+}
+fn source_supported(source: &str) -> bool {
+    match source {
+        "auto" | "browser" => true,
+        "spotify-macos" => cfg!(target_os = "macos"),
+        "windows-smtc" => cfg!(target_os = "windows"),
+        _ => false,
+    }
+}
+fn load_profile(path: &PathBuf) -> Profile {
+    std::fs::read(path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<VersionedProfile>(&bytes).ok())
+        .filter(|stored| stored.version == PROFILE_VERSION && validate_profile(&stored.profile))
+        .map(|stored| stored.profile)
+        .unwrap_or_else(default_profile)
+}
+fn save_profile(path: &PathBuf, profile: &Profile) -> Result<(), std::io::Error> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let bytes = serde_json::to_vec(&VersionedProfile {
+        version: PROFILE_VERSION,
+        profile: profile.clone(),
+    })
+    .map_err(std::io::Error::other)?;
+    std::fs::write(path, bytes)
+}
+fn supported_sources() -> Vec<&'static str> {
+    let mut v = vec!["browser"];
+    if cfg!(target_os = "macos") {
+        v.push("spotify-macos")
+    }
+    if cfg!(target_os = "windows") {
+        v.push("windows-smtc")
+    }
+    v
+}
+async fn get_profile(State(state): State<AppState>) -> Json<Value> {
+    let profile = state.session.lock().await.profile.clone();
+    Json(json!({"profile":profile,"supportedSources":supported_sources()}))
+}
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ProfileUpdate {
     target_locale: Option<String>,
     passthrough_languages: Option<Vec<String>>,
     allowed_systems: Option<Vec<String>>,
+    source_preference: Option<String>,
+    reset: Option<bool>,
 }
-
 async fn update_profile(
     State(state): State<AppState>,
-    Json(update): Json<ProfileUpdate>,
-) -> Json<Value> {
+    payload: Result<Json<ProfileUpdate>, JsonRejection>,
+) -> Response {
+    let Json(update) = match payload {
+        Ok(value) => value,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error":"invalid profile update"})),
+            )
+                .into_response()
+        }
+    };
     let mut session = state.session.lock().await;
-    if let Some(locale) = update
-        .target_locale
-        .filter(|value| ["zh-TW", "en", "ja", "ko"].contains(&value.as_str()))
+    let mut profile = if update.reset == Some(true) {
+        default_profile()
+    } else {
+        session.profile.clone()
+    };
+    if update.reset == Some(true)
+        && (update.target_locale.is_some()
+            || update.passthrough_languages.is_some()
+            || update.allowed_systems.is_some()
+            || update.source_preference.is_some())
     {
-        session.profile.target_locale = locale;
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error":"reset cannot be combined with profile updates"})),
+        )
+            .into_response();
     }
-    if let Some(languages) = update.passthrough_languages {
-        let mut unique = Vec::new();
-        for language in languages
-            .into_iter()
-            .filter(|value| ["zh", "en", "ja", "ko"].contains(&value.as_str()))
-        {
-            if !unique.contains(&language) {
-                unique.push(language);
-            }
+    if let Some(v) = update.target_locale {
+        profile.target_locale = v;
+    }
+    if let Some(v) = update.passthrough_languages {
+        profile.passthrough_languages = v;
+    }
+    if let Some(v) = update.allowed_systems {
+        profile.allowed_systems = v;
+    }
+    if let Some(v) = update.source_preference {
+        profile.source_preference = v;
+    }
+    let mut unique = Vec::new();
+    for language in profile.passthrough_languages.drain(..) {
+        if !unique.contains(&language) {
+            unique.push(language)
         }
-        session.profile.passthrough_languages = unique;
     }
-    if let Some(systems) = update.allowed_systems {
-        let systems: Vec<_> = systems
-            .into_iter()
-            .filter(|value| ["chinese", "bopomofo", "latin"].contains(&value.as_str()))
-            .take(3)
-            .collect();
-        if !systems.is_empty() {
-            session.profile.allowed_systems = systems;
-        }
+    profile.passthrough_languages = unique;
+    if !validate_profile(&profile) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error":"invalid profile value or unsupported source"})),
+        )
+            .into_response();
     }
-    let profile = session.profile.clone();
+    if let Err(error) = save_profile(&state.profile_path, &profile) {
+        eprintln!("Unable to save local profile: {error}");
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error":"Unable to save preferences locally. Check that the application can write to its configuration folder."}))).into_response();
+    }
+    session.profile = profile.clone();
     let track = session.snapshot.track.clone();
     let sheet_event = session.sheet.as_mut().map(|sheet| {
+        sheet.allowed_systems = profile.allowed_systems.clone();
         sheet.revision += 1;
-        json!({"track": track, "sheet": sheet.clone()})
+        json!({"track":track,"sheet":sheet.clone()})
     });
     drop(session);
     if let Some(event) = sheet_event {
-        state.emit("lyrics-sheet", event);
+        state.emit("lyrics-sheet", event)
     }
-    Json(json!({"success":true,"profile":profile}))
+    (
+        StatusCode::OK,
+        Json(json!({"success":true,"profile":profile,"supportedSources":supported_sources()})),
+    )
+        .into_response()
 }
 
 pub fn empty_snapshot() -> Snapshot {
@@ -455,7 +703,10 @@ pub fn empty_snapshot() -> Snapshot {
 
 #[cfg(test)]
 mod tests {
-    use super::{validate_report, BrowserReport};
+    use super::{
+        default_profile, load_profile, save_profile, validate_profile, validate_report,
+        BrowserReport,
+    };
 
     fn report() -> BrowserReport {
         BrowserReport {
@@ -493,5 +744,53 @@ mod tests {
         let mut invalid = report();
         invalid.artists.clear();
         assert_eq!(validate_report(&invalid), Err("missing or invalid artists"));
+    }
+
+    #[test]
+    fn defaults_and_validates_profile_values_and_platform_sources() {
+        let profile = default_profile();
+        assert_eq!(profile.target_locale, "zh-TW");
+        assert_eq!(profile.allowed_systems, vec!["chinese"]);
+        assert_eq!(profile.source_preference, "auto");
+        assert!(validate_profile(&profile));
+        let mut simplified = profile.clone();
+        simplified.target_locale = "zh-CN".into();
+        assert!(validate_profile(&simplified));
+        let mut invalid = profile.clone();
+        invalid.target_locale = "xx".into();
+        assert!(!validate_profile(&invalid));
+        invalid = profile.clone();
+        invalid.source_preference = "not-a-source".into();
+        assert!(!validate_profile(&invalid));
+        if !cfg!(target_os = "windows") {
+            invalid = profile;
+            invalid.source_preference = "windows-smtc".into();
+            assert!(!validate_profile(&invalid));
+        }
+    }
+
+    #[test]
+    fn persists_valid_version_and_falls_back_on_corrupt_or_unsupported_profile() {
+        let path = std::env::temp_dir().join(format!(
+            "lyrics-profile-{}-{}.json",
+            std::process::id(),
+            super::now_ms()
+        ));
+        let mut profile = default_profile();
+        profile.target_locale = "ja".into();
+        profile.passthrough_languages = vec!["en".into(), "ko".into()];
+        profile.allowed_systems = vec!["latin".into()];
+        profile.source_preference = "browser".into();
+        save_profile(&path, &profile).unwrap();
+        let loaded = load_profile(&path);
+        assert_eq!(loaded.target_locale, "ja");
+        assert_eq!(loaded.passthrough_languages, vec!["en", "ko"]);
+        assert_eq!(loaded.allowed_systems, vec!["latin"]);
+        assert_eq!(loaded.source_preference, "browser");
+        std::fs::write(&path,r#"{"version":999,"profile":{"targetLocale":"ja","passthroughLanguages":[],"allowedSystems":["chinese"],"sourcePreference":"auto"}}"#).unwrap();
+        assert_eq!(load_profile(&path).target_locale, "zh-TW");
+        std::fs::write(&path, "broken").unwrap();
+        assert_eq!(load_profile(&path).source_preference, "auto");
+        let _ = std::fs::remove_file(path);
     }
 }

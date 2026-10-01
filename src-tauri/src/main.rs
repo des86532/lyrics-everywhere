@@ -36,7 +36,8 @@ fn main() {
             } else {
                 resource_dir.join("dist")
             };
-            let state = server::AppState::new();
+            let profile_path = app.path().app_config_dir()?.join("profile.json");
+            let state = server::AppState::new(profile_path);
             let app_handle = app.handle().clone();
             let app_state = state.clone();
             tauri::async_runtime::spawn(async move {
