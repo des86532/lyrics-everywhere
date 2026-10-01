@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Lyrics Everywhere YouTube Connector",
+  "name": "Lyrics Everywhere · YouTube Connector",
   "version": "0.1.0",
-  "description": "Reports YouTube and YouTube Music playback to the local Lyrics Everywhere companion.",
+  "description": "Shares YouTube and YouTube Music playback details with the local Lyrics Everywhere app.",
+  "icons": { "32": "icons/32x32.png", "128": "icons/128x128.png" },
   "permissions": [],
   "host_permissions": ["http://127.0.0.1:3838/*"],
   "background": { "service_worker": "service-worker.js" },

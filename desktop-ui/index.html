@@ -2,232 +2,133 @@
 <html lang="zh-TW">
 <head>
   <meta charset="utf-8">
-  <title>Universal Sing-Along Companion - 全曲歌詞跟唱</title>
+  <title>Lyrics Everywhere — 全曲跟唱</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      background: rgba(15, 23, 42, 0.95);
-      color: #f8fafc;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 20px;
+    :root { color-scheme: dark; --canvas: #0b1017; --surface: #151e2a; --raised: #1b2735; --line: #2b3948; --ink: #e8edf2; --muted: #98a5b3; --sync: #89ced1; --phonetic: #ddbb78; --font-ui: "Avenir Next", "Segoe UI Variable", "Noto Sans TC", system-ui, sans-serif; --font-data: "SF Mono", "Cascadia Code", Consolas, monospace; font-family: var(--font-ui); font-synthesis: none; text-rendering: optimizeLegibility; }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; }
+    body { margin: 0; overflow: hidden; background: var(--canvas); color: var(--ink); }
+    button, input { font: inherit; }
+    button:focus-visible, summary:focus-visible, input:focus-visible { outline: 2px solid var(--sync); outline-offset: 3px; }
+    .workspace { position: relative; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; width: 100%; height: 100%; min-height: 0; padding: 26px clamp(24px, 5vw, 68px) 20px; background: radial-gradient(ellipse at 50% 42%, #182534 0%, var(--canvas) 68%); }
+    .topbar { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding-bottom: 22px; border-bottom: 1px solid var(--line); }
+    .track-meta { min-width: 0; }
+    .eyebrow { margin: 0 0 7px; color: var(--muted); font-size: .7rem; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
+    .track-title { overflow: hidden; color: var(--ink); font-size: clamp(1.15rem, 2vw, 1.45rem); font-weight: 650; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+    .track-artist { margin-top: 4px; color: var(--muted); font-size: .9rem; }
+    .topbar-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 12px; }
+    .status-badge { display: inline-flex; align-items: center; gap: 9px; min-height: 38px; padding: 0 13px; border: 1px solid var(--line); border-radius: 999px; background: #111a24; color: var(--muted); font-size: .8rem; font-weight: 650; white-space: nowrap; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+    .status-badge[data-state="playing"] { border-color: #89ced155; color: var(--sync); }
+    .status-badge[data-state="paused"] { border-color: #ddbb7855; color: var(--phonetic); }
+    .preferences { position: relative; }
+    .preferences summary { display: inline-flex; align-items: center; min-height: 38px; padding: 0 14px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); cursor: pointer; font-size: .82rem; font-weight: 650; list-style: none; }
+    .preferences summary::-webkit-details-marker { display: none; }
+    .preferences summary::after { content: "⌄"; margin-left: 9px; color: var(--sync); }
+    .preferences[open] summary::after { content: "⌃"; }
+    .preferences-panel { position: absolute; z-index: 20; top: calc(100% + 10px); right: 0; width: min(340px, calc(100vw - 32px)); padding: 20px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: 0 20px 55px #0009; }
+    .preferences-panel fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+    .preferences-panel fieldset + fieldset { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--line); }
+    .preferences-panel legend { margin-bottom: 11px; color: var(--ink); font-size: .84rem; font-weight: 650; }
+    .preference-options { display: flex; flex-wrap: wrap; gap: 8px; }
+    .preference-option { display: inline-flex; align-items: center; min-height: 36px; padding: 0 11px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); cursor: pointer; font-size: .8rem; }
+    .preference-option:has(input:checked) { border-color: #89ced177; background: #89ced116; color: var(--ink); }
+    .preference-option input { margin: 0 7px 0 0; accent-color: var(--sync); }
+    .preference-note { margin: 12px 0 0; color: var(--muted); font-size: .76rem; line-height: 1.55; }
+    .lyrics-region { position: relative; display: flex; min-height: 0; flex-direction: column; }
+    .lyrics-heading { display: flex; align-items: center; justify-content: space-between; padding: 16px 0 2px; }
+    .lyrics-heading h2 { margin: 0; color: var(--muted); font-size: .72rem; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
+    .lyrics-sheet-container { flex: 1; min-height: 0; overflow-y: auto; padding: 22px clamp(4px, 5vw, 72px) 42px; scroll-behavior: smooth; scrollbar-color: #455464 transparent; scrollbar-width: thin; }
+    .lyric-row { position: relative; margin: 7px 0; padding: 16px 20px; border-radius: 9px; text-align: center; opacity: .68; transition: background-color .22s ease, opacity .22s ease; }
+    .lyric-row.active { border-left: 2px solid var(--sync); background: linear-gradient(90deg, #89ced11b, #89ced108 65%, transparent); opacity: 1; }
+    .original-text { color: #c3cbd4; font-size: clamp(1.2rem, 2.4vw, 1.65rem); font-weight: 560; line-height: 1.55; letter-spacing: .015em; overflow-wrap: anywhere; }
+    .lyric-row.active .original-text { color: var(--ink); font-weight: 720; }
+    .blended-homophone { margin-top: 7px; color: var(--phonetic); font-size: clamp(.98rem, 1.8vw, 1.15rem); font-weight: 600; line-height: 1.5; letter-spacing: .035em; overflow-wrap: anywhere; }
+    .lyric-row:not(.active) .blended-homophone { color: #c4a96f; }
+    .empty-state { max-width: 460px; margin: auto; padding: 40px 24px; color: var(--muted); text-align: center; line-height: 1.7; }
+    .empty-state strong { display: block; margin-bottom: 8px; color: var(--ink); font-size: 1.05rem; font-weight: 650; }
+    .btn-return-sync { position: absolute; z-index: 5; right: 18px; bottom: 16px; display: none; min-height: 40px; padding: 0 15px; border: 1px solid #89ced177; border-radius: 9px; background: #172530; color: var(--sync); cursor: pointer; font-size: .82rem; font-weight: 650; }
+    .btn-return-sync:hover { background: #203642; }
+    .playback-footer { display: grid; grid-template-columns: auto minmax(80px, 1fr) auto; align-items: center; gap: 15px; padding-top: 15px; border-top: 1px solid var(--line); color: var(--muted); font: 12px var(--font-data); font-variant-numeric: tabular-nums; }
+    .progress-track { height: 4px; overflow: hidden; border-radius: 99px; background: #34414e; }
+    .progress-fill { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--sync); transition: width .35s linear; }
+    @media (max-width: 760px) {
+      .workspace { padding: 18px 18px 14px; }
+      .topbar { align-items: flex-start; gap: 12px; padding-bottom: 15px; }
+      .topbar-actions { gap: 7px; }
+      .status-badge { min-height: 34px; padding: 0 10px; font-size: .72rem; }
+      .preferences summary { min-height: 34px; padding: 0 10px; font-size: .75rem; }
+      .lyrics-sheet-container { padding: 14px 2px 38px; }
+      .lyric-row { padding: 14px 10px; }
+      .playback-footer { gap: 9px; padding-top: 12px; }
     }
-    .container {
-      width: 100%;
-      max-width: 760px;
-      display: flex;
-      flex-direction: column;
-      height: 94vh;
-      background: rgba(30, 41, 59, 0.7);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      border-radius: 28px;
-      padding: 24px;
-      box-shadow: 0 24px 48px rgba(0,0,0,0.5);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-      position: relative;
+    @media (max-width: 520px) {
+      .workspace { padding: 14px 13px 12px; }
+      .topbar { flex-wrap: wrap; }
+      .track-meta { width: 100%; }
+      .topbar-actions { width: 100%; justify-content: space-between; }
+      .lyrics-heading { padding-top: 13px; }
+      .lyrics-sheet-container { padding-top: 9px; }
+      .lyric-row { padding-inline: 5px; }
+      .playback-footer { grid-template-columns: auto minmax(40px, 1fr) auto; font-size: 10px; }
     }
-    .header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-      padding-bottom: 14px;
-      margin-bottom: 16px;
-    }
-    .track-title { font-size: 1.4rem; font-weight: 800; color: #38bdf8; }
-    .track-artist { font-size: 0.9rem; color: #94a3b8; margin-top: 2px; }
-    .status-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 12px;
-      border-radius: 9999px;
-      font-size: 0.75rem;
-      font-weight: 700;
-      background: rgba(16, 185, 129, 0.2);
-      color: #34d399;
-    }
-    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #10b981; }
-
-    /* 語言與顯示偏好 */
-    .language-selector,
-    .system-selector {
-      border: 0;
-      min-width: 0;
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 12px;
-      background: rgba(15, 23, 42, 0.6);
-      padding: 10px 16px;
-      border-radius: 16px;
-      margin-bottom: 16px;
-      font-size: 0.85rem;
-      color: #94a3b8;
-    }
-    .language-selector legend,
-    .system-selector legend {
-      padding: 0;
-      margin-bottom: 8px;
-      font-weight: 700;
-      color: #e2e8f0;
-    }
-    .language-options {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-    .chk-item {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      cursor: pointer;
-      user-select: none;
-      font-weight: 600;
-      color: #cbd5e1;
-    }
-    .chk-item input {
-      accent-color: #38bdf8;
-      width: 16px;
-      height: 16px;
-      cursor: pointer;
-    }
-
-    /* 全曲歌詞滾動區 */
-    .lyrics-sheet-container {
-      flex: 1;
-      overflow-y: auto;
-      padding: 40px 16px 120px 16px;
-      scroll-behavior: smooth;
-    }
-    .lyrics-sheet-container::-webkit-scrollbar { width: 6px; }
-    .lyrics-sheet-container::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); border-radius: 4px; }
-
-    .lyric-row {
-      text-align: center;
-      padding: 18px 12px;
-      margin: 8px 0;
-      border-radius: 16px;
-      transition: all 0.3s ease;
-      opacity: 0.45;
-    }
-    .lyric-row.active {
-      opacity: 1;
-      background: rgba(56, 189, 248, 0.1);
-      border: 1px solid rgba(56, 189, 248, 0.3);
-      transform: scale(1.03);
-    }
-    .original-text {
-      font-size: 1.5rem;
-      font-weight: 800;
-      color: #ffffff;
-      letter-spacing: 0.04em;
-    }
-    .lyric-row.active .original-text {
-      font-size: 1.8rem;
-      color: #ffffff;
-      text-shadow: 0 0 20px rgba(56, 189, 248, 0.4);
-    }
-    .blended-homophone {
-      font-size: 1.1rem;
-      font-weight: 700;
-      color: #facc15;
-      margin-top: 6px;
-      letter-spacing: 0.06em;
-    }
-    .lyric-row.active .blended-homophone {
-      font-size: 1.3rem;
-      color: #fde047;
-      text-shadow: 0 0 16px rgba(250, 204, 21, 0.5);
-    }
-
-    /* 浮動快捷按鈕 */
-    .btn-return-sync {
-      position: absolute;
-      bottom: 40px;
-      right: 32px;
-      background: #38bdf8;
-      color: #0f172a;
-      border: none;
-      padding: 10px 18px;
-      border-radius: 9999px;
-      font-weight: 700;
-      font-size: 0.85rem;
-      box-shadow: 0 8px 24px rgba(56, 189, 248, 0.5);
-      cursor: pointer;
-      display: none;
-      z-index: 10;
-      transition: all 0.2s;
-    }
-    .btn-return-sync:hover { transform: scale(1.05); }
-
-    .footer {
-      border-top: 1px solid rgba(255, 255, 255, 0.08);
-      padding-top: 12px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 0.75rem;
-      color: #94a3b8;
-    }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; } }
   </style>
 </head>
 <body>
-  <main class="container">
-    <div class="header">
-      <div>
-        <h1 id="title" class="track-title">全曲歌詞預載中...</h1>
-        <div id="artist" class="track-artist">Universal Sing-Along Companion</div>
+  <main class="workspace">
+    <header class="topbar">
+      <div class="track-meta">
+        <p class="eyebrow">Lyrics Everywhere · Local listening</p>
+        <h1 id="title" class="track-title">等待播放</h1>
+        <p id="artist" class="track-artist">在支援的桌面播放器或 Chrome YouTube 開始播放</p>
       </div>
-      <div id="badge" class="status-badge">
-        <span class="status-dot"></span>
-        <span id="badge-text">連線中</span>
+      <div class="topbar-actions">
+        <div id="badge" class="status-badge" data-state="waiting" role="status" aria-live="polite">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span id="badge-text">等待播放資訊</span>
+        </div>
+        <details class="preferences">
+          <summary aria-label="開啟顯示偏好">顯示偏好</summary>
+          <div class="preferences-panel">
+            <fieldset>
+              <legend>保留原文語言</legend>
+              <div class="preference-options">
+                <label class="preference-option"><input class="preserved-language" name="preserved-language" type="checkbox" value="zh" checked onchange="updateLanguages(event)">中文</label>
+                <label class="preference-option"><input class="preserved-language" name="preserved-language" type="checkbox" value="en" onchange="updateLanguages(event)">英文</label>
+                <label class="preference-option"><input class="preserved-language" name="preserved-language" type="checkbox" value="ja" onchange="updateLanguages(event)">日文</label>
+                <label class="preference-option"><input class="preserved-language" name="preserved-language" type="checkbox" value="ko" onchange="updateLanguages(event)">韓文</label>
+              </div>
+              <p class="preference-note">選取的語言保留原文；其他語言會依下方設定轉寫。至少保留一種語言。</p>
+            </fieldset>
+            <fieldset>
+              <legend>空耳顯示方式</legend>
+              <div class="preference-options">
+                <label class="preference-option"><input type="radio" name="phonetic-system" value="chinese" checked onchange="updateSystems()">漢字</label>
+                <label class="preference-option"><input type="radio" name="phonetic-system" value="latin" onchange="updateSystems()">英文字母</label>
+                <label class="preference-option"><input type="radio" name="phonetic-system" value="bopomofo" onchange="updateSystems()">注音</label>
+              </div>
+            </fieldset>
+          </div>
+        </details>
       </div>
-    </div>
-    <fieldset class="language-selector" style="margin-bottom:12px; padding:12px; border-radius:12px; background:rgba(255,255,255,0.05);">
-      <legend>保留原文語言（非歌詞翻譯，至少選一種）</legend>
-      <div class="language-options">
-        <label class="chk-item"><input class="preserved-language" name="preserved-language" type="checkbox" value="zh" checked onchange="updateLanguages(event)"> 保留中文</label>
-        <label class="chk-item"><input class="preserved-language" name="preserved-language" type="checkbox" value="en"  onchange="updateLanguages(event)"> 保留英文</label>
-        <label class="chk-item"><input class="preserved-language" name="preserved-language" type="checkbox" value="ja"  onchange="updateLanguages(event)"> 保留日文</label>
-        <label class="chk-item"><input class="preserved-language" name="preserved-language" type="checkbox" value="ko"  onchange="updateLanguages(event)"> 保留韓文</label>
+    </header>
+    <section class="lyrics-region" aria-labelledby="lyrics-heading">
+      <div class="lyrics-heading">
+        <h2 id="lyrics-heading">同步歌詞</h2>
+        <span class="eyebrow" aria-hidden="true">Follow the line</span>
       </div>
-    </fieldset>
-    <fieldset class="system-selector" style="margin-bottom:12px;">
-      <legend>空耳顯示方式</legend>
-      <label class="chk-item">
-        <input type="radio" name="phonetic-system" value="chinese" checked onchange="updateSystems()"> 🀄 中文漢字
-      </label>
-      <label class="chk-item">
-        <input type="radio" name="phonetic-system" value="latin"  onchange="updateSystems()"> 🔤 英文字母
-      </label>
-      <label class="chk-item">
-        <input type="radio" name="phonetic-system" value="bopomofo"  onchange="updateSystems()"> ㄅ 台灣注音
-      </label>
-    </fieldset>
-    <div style="background:rgba(56, 189, 248, 0.08); border:1px solid rgba(56, 189, 248, 0.2); padding:8px 16px; border-radius:12px; margin-bottom:14px; font-size:0.8rem; color:#7dd3fc; text-align:center;">
-      ✨ 選取的原文語言會維持原樣不翻譯，未選取的語言照常轉寫。
-    </div>
-    <!-- 全篇歌詞滾動檢視區 (全曲一次預載) -->
-    <div id="lyrics-sheet" class="lyrics-sheet-container">
-      <div style="text-align:center; padding: 40px; color: #94a3b8;">
-        正在預載全篇歌詞與空耳...
+      <div id="lyrics-sheet" class="lyrics-sheet-container" tabindex="0" aria-label="全曲同步歌詞">
+        <div class="empty-state"><strong>歌詞準備中</strong>正在等待播放資訊與同步歌詞。</div>
       </div>
-    </div>
-    <!-- 手動滾動時出現的快速回正提示 -->
-    <button id="btn-return" class="btn-return-sync" onclick="returnToPlaying()">
-      📍 回到目前段落
-    </button>
-
-    <div class="footer">
-      <div>💡 提示：顯示方式可切換漢字、注音或英文字母；原文保留設定不會翻譯歌詞</div>
-      <div id="time-info">00:00</div>
-    </div>
+      <button id="btn-return" class="btn-return-sync" type="button" onclick="returnToPlaying()">回到目前段落</button>
+    </section>
+    <footer class="playback-footer" aria-label="歌曲播放進度">
+      <span id="time-info">00:00</span>
+      <div id="progress-track" class="progress-track" role="progressbar" aria-label="歌曲進度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="progress-fill" class="progress-fill"></span></div>
+      <span id="duration-info">--:--</span>
+    </footer>
   </main>
 
   <script type="module">
@@ -238,14 +139,35 @@
     const titleEl = document.getElementById("title");
     const artistEl = document.getElementById("artist");
     const sheetEl = document.getElementById("lyrics-sheet");
+    const badgeEl = document.getElementById("badge");
     const badgeTextEl = document.getElementById("badge-text");
     const timeInfoEl = document.getElementById("time-info");
+    const durationInfoEl = document.getElementById("duration-info");
+    const progressTrackEl = document.getElementById("progress-track");
+    const progressFillEl = document.getElementById("progress-fill");
     const btnReturnEl = document.getElementById("btn-return");
 
     let currentSheet = null;
     let activeIndex = -1;
     let manualScrollLockTimer = null;
     let isUserScrolling = false;
+
+    function formatClock(milliseconds) {
+      const totalSeconds = Math.floor(Math.max(0, Number(milliseconds) || 0) / 1000);
+      return String(Math.floor(totalSeconds / 60)).padStart(2, "0") + ":" + String(totalSeconds % 60).padStart(2, "0");
+    }
+
+    function showEmptyState(title, message, state) {
+      if (sheetEl.dataset.state === state) return;
+      const notice = document.createElement("div");
+      notice.className = "empty-state";
+      const heading = document.createElement("strong");
+      heading.textContent = title;
+      notice.append(heading, document.createTextNode(message));
+      sheetEl.replaceChildren(notice);
+      sheetEl.dataset.state = state;
+    }
+
 
     // 監聽使用者手動滾動 (4 秒防干擾保護)
     sheetEl.addEventListener("wheel", triggerManualScroll);
@@ -322,20 +244,24 @@
       const cursor = data.cursor;
 
       if (!cursor.trackKey) {
+        badgeEl.dataset.state = "waiting";
         badgeTextEl.textContent = "等待播放資訊";
         titleEl.textContent = "尚未偵測到媒體工作階段";
         artistEl.textContent = "請在支援的桌面播放器或 Chrome YouTube 開始播放";
-        sheetEl.textContent = "";
-        const notice = document.createElement("div");
-        notice.style.cssText = "text-align:center; padding:40px; color:#94a3b8;";
-        notice.textContent = "尚未偵測到媒體資訊。播放器需公開歌曲標題與歌手。";
-        sheetEl.appendChild(notice);
+        showEmptyState("尚未偵測到播放資訊", "播放器需公開歌曲標題與歌手，才能同步歌詞。", "waiting");
+        timeInfoEl.textContent = "00:00";
+        durationInfoEl.textContent = "--:--";
+        progressFillEl.style.width = "0%";
+        progressTrackEl.setAttribute("aria-valuenow", "0");
         return;
       }
+      badgeEl.dataset.state = cursor.isPlaying ? "playing" : "paused";
       badgeTextEl.textContent = cursor.isPlaying ? "播放中" : "暫停";
-      const mins = Math.floor(cursor.positionMs / 60000);
-      const secs = Math.floor((cursor.positionMs % 60000) / 1000);
-      timeInfoEl.textContent = String(mins).padStart(2, '0') + ":" + String(secs).padStart(2, '0');
+      timeInfoEl.textContent = formatClock(cursor.positionMs);
+      durationInfoEl.textContent = cursor.durationMs ? formatClock(cursor.durationMs) : "--:--";
+      const progress = Math.max(0, Math.min(100, Number(cursor.progressPercent) || 0));
+      progressFillEl.style.width = progress + "%";
+      progressTrackEl.setAttribute("aria-valuenow", String(progress));
 
       if (cursor.currentLineIndex !== activeIndex) {
         updateActiveLine(cursor.currentLineIndex);
@@ -344,19 +270,20 @@
 
     function renderFullSheet(sheet) {
       if (!sheet || !sheet.lines || sheet.lines.length === 0) {
-        const message = sheet?.status === "loading" ? "正在查詢同步歌詞…" : sheet?.status === "unavailable" ? "沒有可用的同步歌詞。播放資訊會用來向 LRCLIB 查詢歌詞。" : null;
+        const message = sheet?.status === "loading"
+          ? "正在查詢同步歌詞…"
+          : sheet?.status === "unavailable"
+            ? "沒有可用的同步歌詞。播放資訊會用來向 LRCLIB 查詢歌詞。"
+            : null;
         if (message) {
-          sheetEl.textContent = "";
-          const notice = document.createElement("div");
-          notice.style.cssText = "text-align:center; padding:40px; color:#94a3b8;";
-          notice.textContent = message;
-          sheetEl.appendChild(notice);
-          return;
+          const isLoading = sheet.status === "loading";
+          showEmptyState(isLoading ? "正在尋找歌詞" : "找不到同步歌詞", message, isLoading ? "lyrics-loading" : "lyrics-unavailable");
         }
         return;
       }
 
-      sheetEl.innerHTML = "";
+      sheetEl.dataset.state = "lyrics";
+      sheetEl.replaceChildren();
       sheet.lines.forEach((line, idx) => {
         const row = document.createElement("div");
         row.className = "lyric-row" + (idx === activeIndex ? " active" : "");
