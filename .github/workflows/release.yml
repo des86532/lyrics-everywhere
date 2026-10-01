@@ -1,0 +1,95 @@
+name: Desktop release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag (for example v0.1.0)
+        required: true
+        type: string
+      windows_hardware_verified:
+        description: Confirm Windows 10/11 interactive desktop verification completed
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.14.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm run lint
+      - run: pnpm run build
+      - run: pnpm exec tauri build --bundles nsis
+      - name: Verify Windows installer
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*-setup.exe' -ErrorAction SilentlyContinue
+          if (!$installer) { throw 'Tauri Windows NSIS installer was not produced' }
+      - name: Package Chrome extension
+        shell: pwsh
+        run: Compress-Archive -Path browser-extension -DestinationPath src-tauri/target/release/bundle/nsis/lyrics-everywhere-chrome-extension.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installers
+          path: src-tauri/target/release/bundle/nsis/*
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        target: [aarch64-apple-darwin, x86_64-apple-darwin]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.14.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lint
+      - run: pnpm run build
+      - run: pnpm exec tauri build --target ${{ matrix.target }} --bundles dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.target }}-installers
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+
+  publish:
+    if: ${{ inputs.windows_hardware_verified }}
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Create checksums
+        run: cd release-assets && sha256sum * > SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          name: Lyrics Everywhere ${{ inputs.tag }}
+          files: release-assets/*
+          draft: false
+          prerelease: false

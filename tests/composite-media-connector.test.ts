@@ -27,4 +27,11 @@ describe("CompositeMediaConnector", () => {
     const composite = new CompositeMediaConnector([failed, youtube], "youtube");
     await expect(composite.snapshot()).resolves.toMatchObject({ track: { trackKey: "youtube:two" }, eventSeq: 1 });
   });
+
+  it("prefers Chrome over SMTC when both are already playing in Windows auto mode", async () => {
+    const browser = fixedConnector("browser", { eventSeq: 1, state: "playing", track: { ...track("youtube:one"), source: { connector: "browser" } }, positionMs: 4, sampledAtMs: 1, playbackRate: 1 });
+    const smtc = fixedConnector("windows-smtc", { eventSeq: 1, state: "playing", track: { ...track("windows:two"), source: { connector: "windows-smtc" } }, positionMs: 9, sampledAtMs: 1, playbackRate: 1 });
+    const composite = new CompositeMediaConnector([smtc, browser], "auto", ["browser", "windows-smtc"]);
+    await expect(composite.snapshot()).resolves.toMatchObject({ track: { trackKey: "youtube:one" }, state: "playing" });
+  });
 });

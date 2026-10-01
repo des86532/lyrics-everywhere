@@ -1,4 +1,5 @@
 export * from "./domain/types.js";
+export * from "./runtime.js";
 export * from "./connectors/media-connector.js";
 export * from "./connectors/spotify-macos.js";
 export * from "./connectors/browser-media-connector.js";

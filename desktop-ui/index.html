@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="utf-8">
+  <title>Universal Sing-Along Companion - 全曲歌詞跟唱</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: rgba(15, 23, 42, 0.95);
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+    }
+    .container {
+      width: 100%;
+      max-width: 760px;
+      display: flex;
+      flex-direction: column;
+      height: 94vh;
+      background: rgba(30, 41, 59, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 28px;
+      padding: 24px;
+      box-shadow: 0 24px 48px rgba(0,0,0,0.5);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      position: relative;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding-bottom: 14px;
+      margin-bottom: 16px;
+    }
+    .track-title { font-size: 1.4rem; font-weight: 800; color: #38bdf8; }
+    .track-artist { font-size: 0.9rem; color: #94a3b8; margin-top: 2px; }
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      background: rgba(16, 185, 129, 0.2);
+      color: #34d399;
+    }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #10b981; }
+
+    /* 語言與顯示偏好 */
+    .language-selector,
+    .system-selector {
+      border: 0;
+      min-width: 0;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      background: rgba(15, 23, 42, 0.6);
+      padding: 10px 16px;
+      border-radius: 16px;
+      margin-bottom: 16px;
+      font-size: 0.85rem;
+      color: #94a3b8;
+    }
+    .language-selector legend,
+    .system-selector legend {
+      padding: 0;
+      margin-bottom: 8px;
+      font-weight: 700;
+      color: #e2e8f0;
+    }
+    .language-options {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .chk-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      user-select: none;
+      font-weight: 600;
+      color: #cbd5e1;
+    }
+    .chk-item input {
+      accent-color: #38bdf8;
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+    }
+
+    /* 全曲歌詞滾動區 */
+    .lyrics-sheet-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 40px 16px 120px 16px;
+      scroll-behavior: smooth;
+    }
+    .lyrics-sheet-container::-webkit-scrollbar { width: 6px; }
+    .lyrics-sheet-container::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); border-radius: 4px; }
+
+    .lyric-row {
+      text-align: center;
+      padding: 18px 12px;
+      margin: 8px 0;
+      border-radius: 16px;
+      transition: all 0.3s ease;
+      opacity: 0.45;
+    }
+    .lyric-row.active {
+      opacity: 1;
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      transform: scale(1.03);
+    }
+    .original-text {
+      font-size: 1.5rem;
+      font-weight: 800;
+      color: #ffffff;
+      letter-spacing: 0.04em;
+    }
+    .lyric-row.active .original-text {
+      font-size: 1.8rem;
+      color: #ffffff;
+      text-shadow: 0 0 20px rgba(56, 189, 248, 0.4);
+    }
+    .blended-homophone {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #facc15;
+      margin-top: 6px;
+      letter-spacing: 0.06em;
+    }
+    .lyric-row.active .blended-homophone {
+      font-size: 1.3rem;
+      color: #fde047;
+      text-shadow: 0 0 16px rgba(250, 204, 21, 0.5);
+    }
+
+    /* 浮動快捷按鈕 */
+    .btn-return-sync {
+      position: absolute;
+      bottom: 40px;
+      right: 32px;
+      background: #38bdf8;
+      color: #0f172a;
+      border: none;
+      padding: 10px 18px;
+      border-radius: 9999px;
+      font-weight: 700;
+      font-size: 0.85rem;
+      box-shadow: 0 8px 24px rgba(56, 189, 248, 0.5);
+      cursor: pointer;
+      display: none;
+      z-index: 10;
+      transition: all 0.2s;
+    }
+    .btn-return-sync:hover { transform: scale(1.05); }
+
+    .footer {
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      padding-top: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.75rem;
+      color: #94a3b8;
+    }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <div class="header">
+      <div>
+        <h1 id="title" class="track-title">全曲歌詞預載中...</h1>
+        <div id="artist" class="track-artist">Universal Sing-Along Companion</div>
+      </div>
+      <div id="badge" class="status-badge">
+        <span class="status-dot"></span>
+        <span id="badge-text">連線中</span>
+      </div>
+    </div>
+    <fieldset class="language-selector" style="margin-bottom:12px; padding:12px; border-radius:12px; background:rgba(255,255,255,0.05);">
+      <legend>保留原文語言（非歌詞翻譯，至少選一種）</legend>
+      <div class="language-options">
+        <label class="chk-item"><input class="preserved-language" name="preserved-language" type="checkbox" value="zh" checked onchange="updateLanguages(event)"> 保留中文</label>
+        <label class="chk-item"><input class="preserved-language" name="preserved-language" type="checkbox" value="en"  onchange="updateLanguages(event)"> 保留英文</label>
+        <label class="chk-item"><input class="preserved-language" name="preserved-language" type="checkbox" value="ja"  onchange="updateLanguages(event)"> 保留日文</label>
+        <label class="chk-item"><input class="preserved-language" name="preserved-language" type="checkbox" value="ko"  onchange="updateLanguages(event)"> 保留韓文</label>
+      </div>
+    </fieldset>
+    <fieldset class="system-selector" style="margin-bottom:12px;">
+      <legend>空耳顯示方式</legend>
+      <label class="chk-item">
+        <input type="radio" name="phonetic-system" value="chinese" checked onchange="updateSystems()"> 🀄 中文漢字
+      </label>
+      <label class="chk-item">
+        <input type="radio" name="phonetic-system" value="latin"  onchange="updateSystems()"> 🔤 英文字母
+      </label>
+      <label class="chk-item">
+        <input type="radio" name="phonetic-system" value="bopomofo"  onchange="updateSystems()"> ㄅ 台灣注音
+      </label>
+    </fieldset>
+    <div style="background:rgba(56, 189, 248, 0.08); border:1px solid rgba(56, 189, 248, 0.2); padding:8px 16px; border-radius:12px; margin-bottom:14px; font-size:0.8rem; color:#7dd3fc; text-align:center;">
+      ✨ 選取的原文語言會維持原樣不翻譯，未選取的語言照常轉寫。
+    </div>
+    <!-- 全篇歌詞滾動檢視區 (全曲一次預載) -->
+    <div id="lyrics-sheet" class="lyrics-sheet-container">
+      <div style="text-align:center; padding: 40px; color: #94a3b8;">
+        正在預載全篇歌詞與空耳...
+      </div>
+    </div>
+    <!-- 手動滾動時出現的快速回正提示 -->
+    <button id="btn-return" class="btn-return-sync" onclick="returnToPlaying()">
+      📍 回到目前段落
+    </button>
+
+    <div class="footer">
+      <div>💡 提示：顯示方式可切換漢字、注音或英文字母；原文保留設定不會翻譯歌詞</div>
+      <div id="time-info">00:00</div>
+    </div>
+  </main>
+
+  <script type="module">
+    import { transcribeDisplayText } from "/assets/ui/transcriber-entry.js";
+    window.transcribeDisplayText = transcribeDisplayText;
+  </script>
+  <script>
+    const titleEl = document.getElementById("title");
+    const artistEl = document.getElementById("artist");
+    const sheetEl = document.getElementById("lyrics-sheet");
+    const badgeTextEl = document.getElementById("badge-text");
+    const timeInfoEl = document.getElementById("time-info");
+    const btnReturnEl = document.getElementById("btn-return");
+
+    let currentSheet = null;
+    let activeIndex = -1;
+    let manualScrollLockTimer = null;
+    let isUserScrolling = false;
+
+    // 監聽使用者手動滾動 (4 秒防干擾保護)
+    sheetEl.addEventListener("wheel", triggerManualScroll);
+    sheetEl.addEventListener("touchstart", triggerManualScroll);
+
+    function triggerManualScroll() {
+      isUserScrolling = true;
+      btnReturnEl.style.display = "block";
+
+      if (manualScrollLockTimer) clearTimeout(manualScrollLockTimer);
+      manualScrollLockTimer = setTimeout(() => {
+        isUserScrolling = false;
+        btnReturnEl.style.display = "none";
+      }, 4000);
+    }
+
+    function returnToPlaying() {
+      isUserScrolling = false;
+      btnReturnEl.style.display = "none";
+      scrollToActiveLine();
+    }
+
+    function scrollToActiveLine() {
+      if (isUserScrolling) return;
+      const activeEl = document.querySelector(".lyric-row.active");
+      if (activeEl) {
+        activeEl.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }
+
+    async function updateLanguages(event) {
+      const preservedLanguages = Array.from(document.querySelectorAll(".preserved-language:checked"))
+        .map((input) => input.value);
+      if (preservedLanguages.length === 0) {
+        event.currentTarget.checked = true;
+        return;
+      }
+
+      const [primaryLanguage, ...passthroughLanguages] = preservedLanguages;
+      const targetLocale = primaryLanguage === "zh" ? "zh-TW" : primaryLanguage;
+      await fetch("/api/profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetLocale, passthroughLanguages })
+      });
+    }
+
+    async function updateSystems() {
+      const selected = document.querySelector('input[name="phonetic-system"]:checked')?.value || "chinese";
+      await fetch("/api/profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ allowedSystems: [selected] })
+      });
+    }
+
+    const events = new EventSource("/events");
+
+    // 1. 接收全篇歌譜清單 (換歌或偏好切換時整批推播)
+    events.addEventListener("lyrics-sheet", (e) => {
+      const data = JSON.parse(e.data);
+      if (data.track) {
+        titleEl.textContent = data.track.title;
+        artistEl.textContent = data.track.artists.join(", ");
+      }
+
+      currentSheet = data.sheet;
+      renderFullSheet(currentSheet);
+    });
+
+    // 2. 接收每秒輕量游標更新
+    events.addEventListener("playback-update", (e) => {
+      const data = JSON.parse(e.data);
+      const cursor = data.cursor;
+
+      if (!cursor.trackKey) {
+        badgeTextEl.textContent = "等待播放資訊";
+        titleEl.textContent = "尚未偵測到媒體工作階段";
+        artistEl.textContent = "請在支援的桌面播放器或 Chrome YouTube 開始播放";
+        sheetEl.textContent = "";
+        const notice = document.createElement("div");
+        notice.style.cssText = "text-align:center; padding:40px; color:#94a3b8;";
+        notice.textContent = "尚未偵測到媒體資訊。播放器需公開歌曲標題與歌手。";
+        sheetEl.appendChild(notice);
+        return;
+      }
+      badgeTextEl.textContent = cursor.isPlaying ? "播放中" : "暫停";
+      const mins = Math.floor(cursor.positionMs / 60000);
+      const secs = Math.floor((cursor.positionMs % 60000) / 1000);
+      timeInfoEl.textContent = String(mins).padStart(2, '0') + ":" + String(secs).padStart(2, '0');
+
+      if (cursor.currentLineIndex !== activeIndex) {
+        updateActiveLine(cursor.currentLineIndex);
+      }
+    });
+
+    function renderFullSheet(sheet) {
+      if (!sheet || !sheet.lines || sheet.lines.length === 0) {
+        const message = sheet?.status === "loading" ? "正在查詢同步歌詞…" : sheet?.status === "unavailable" ? "沒有可用的同步歌詞。播放資訊會用來向 LRCLIB 查詢歌詞。" : null;
+        if (message) {
+          sheetEl.textContent = "";
+          const notice = document.createElement("div");
+          notice.style.cssText = "text-align:center; padding:40px; color:#94a3b8;";
+          notice.textContent = message;
+          sheetEl.appendChild(notice);
+          return;
+        }
+        return;
+      }
+
+      sheetEl.innerHTML = "";
+      sheet.lines.forEach((line, idx) => {
+        const row = document.createElement("div");
+        row.className = "lyric-row" + (idx === activeIndex ? " active" : "");
+        row.id = "line-" + idx;
+
+        const origDiv = document.createElement("div");
+        origDiv.className = "original-text";
+        origDiv.textContent = line.originalText;
+
+        const pronDiv = document.createElement("div");
+        pronDiv.className = "blended-homophone";
+        const systems = [document.querySelector('input[name="phonetic-system"]:checked')?.value || "chinese"];
+        const preserved = Array.from(document.querySelectorAll(".preserved-language:checked")).map((input) => input.value);
+        const [primaryLanguage, ...passthrough] = preserved;
+        const targetLocale = primaryLanguage === "zh" ? "zh-TW" : primaryLanguage || "zh-TW";
+        pronDiv.textContent = line.pronunciation?.displayText || window.transcribeDisplayText?.(line.originalText, systems, targetLocale, passthrough) || "";
+
+        row.appendChild(origDiv);
+        row.appendChild(pronDiv);
+        sheetEl.appendChild(row);
+      });
+
+      scrollToActiveLine();
+    }
+
+    function updateActiveLine(newIndex) {
+      if (activeIndex >= 0) {
+        const prevActive = document.getElementById("line-" + activeIndex);
+        if (prevActive) prevActive.classList.remove("active");
+      }
+
+      activeIndex = newIndex;
+      if (activeIndex !== null && activeIndex >= 0) {
+        const currentActive = document.getElementById("line-" + activeIndex);
+        if (currentActive) {
+          currentActive.classList.add("active");
+          scrollToActiveLine();
+        }
+      }
+    }
+  </script>
+</body>
+</html>

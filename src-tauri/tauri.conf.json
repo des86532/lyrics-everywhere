@@ -1,0 +1,40 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Lyrics Everywhere",
+  "version": "0.1.0",
+  "identifier": "tw.lyricseverywhere.companion",
+  "build": {
+    "beforeBuildCommand": "pnpm run build",
+    "beforeDevCommand": "pnpm run build",
+    "frontendDist": "../desktop-ui"
+  },
+  "app": {
+    "security": {
+      "csp": "default-src 'self' http://127.0.0.1:3838; script-src 'self' 'unsafe-inline' http://127.0.0.1:3838; style-src 'self' 'unsafe-inline' http://127.0.0.1:3838; connect-src 'self' http://127.0.0.1:3838; img-src 'self' data: http://127.0.0.1:3838; object-src 'none'; base-uri 'none'"
+    },
+    "windows": []
+  },
+  "bundle": {
+    "active": true,
+
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "../dist/pronunciation/*.js": "dist/pronunciation/",
+      "../dist/ui/transcriber-entry.js": "dist/ui/transcriber-entry.js"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "12.0"
+    }
+  }
+}
