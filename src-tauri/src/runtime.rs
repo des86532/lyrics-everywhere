@@ -334,8 +334,31 @@ async fn spotify_snapshot() -> Option<Snapshot> {
 }
 
 #[cfg(target_os = "windows")]
+struct WinRtApartment;
+
+#[cfg(target_os = "windows")]
+impl WinRtApartment {
+    fn new() -> Option<Self> {
+        use windows::Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED};
+        unsafe {
+            RoInitialize(RO_INIT_MULTITHREADED).ok()?;
+        }
+        Some(Self)
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for WinRtApartment {
+    fn drop(&mut self) {
+        unsafe {
+            windows::Win32::System::WinRT::RoUninitialize();
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
 fn windows_smtc_snapshot() -> Option<Snapshot> {
-    let _apartment = windows::core::initialize_mta().ok()?;
+    let _apartment = WinRtApartment::new()?;
     use windows::Media::Control::{
         GlobalSystemMediaTransportControlsSessionManager,
         GlobalSystemMediaTransportControlsSessionPlaybackStatus,
@@ -359,9 +382,9 @@ fn windows_smtc_snapshot() -> Option<Snapshot> {
         _ => return None,
     };
     let timeline = session.GetTimelineProperties().ok()?;
-    let position = timeline.Position().Duration;
-    let end = timeline.EndTime().Duration;
-    let start = timeline.StartTime().Duration;
+    let position = timeline.Position().ok()?.Duration;
+    let end = timeline.EndTime().ok()?.Duration;
+    let start = timeline.StartTime().ok()?.Duration;
     let duration_ms = (end > start).then_some(((end - start) / 10_000) as u64);
     let app_id = session.SourceAppUserModelId().ok()?.to_string();
     if app_id.is_empty() {
@@ -398,7 +421,7 @@ fn windows_smtc_snapshot() -> Option<Snapshot> {
         playback_rate: playback
             .PlaybackRate()
             .ok()
-            .flatten()
+            .and_then(|rate| rate.Value().ok())
             .filter(|rate| rate.is_finite())
             .unwrap_or(if state == "playing" { 1.0 } else { 0.0 }),
     })
