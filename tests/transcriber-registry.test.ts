@@ -50,6 +50,33 @@ describe("TranscriberRegistry & Multi-language Blended Homophones", () => {
     expect(res.displayText).toBe("愛西貼路");
   });
 
+  it("transcribes voiced, compound, small-tsu, and katakana readings", () => {
+    const chinese = registry.transcribe({
+      text: "オレがずっと きゃ ヴぱ",
+      targetLocale: "",
+      allowedSystems: ["chinese"],
+    });
+    expect(chinese.displayText).toBe("歐雷嘎滋・透 奇亞 夫趴");
+    expect(chinese.displayText).not.toMatch(/[ぁ-ゖァ-ヺ]/u);
+
+    const latin = registry.transcribe({
+      text: "がっこう コーヒー",
+      targetLocale: "",
+      allowedSystems: ["latin"],
+    });
+    expect(latin.displayText).toBe("gakkou koohii");
+  });
+
+  it("uses the final mora vowel for long marks and preserves unsupported kana", () => {
+    const result = registry.transcribe({
+      text: "コー ヵ",
+      targetLocale: "",
+      allowedSystems: ["chinese"],
+    });
+    expect(result.displayText).toBe("口歐 ヵ");
+    expect(result.syllables.at(-1)?.tier).toBe("fallback");
+  });
+
   it("preserves Japanese when it is the selected original language", () => {
     const res = registry.transcribe({
       text: "愛してる",
@@ -58,6 +85,25 @@ describe("TranscriberRegistry & Multi-language Blended Homophones", () => {
     });
 
     expect(res.displayText).toBe("愛してる");
+  });
+  it("preserves only the selected script in mixed Korean and Japanese lyrics", () => {
+    const text = "사랑해 愛してる";
+    const keepKorean = registry.transcribe({ text, targetLocale: "", passthroughLanguages: ["ko"], allowedSystems: ["chinese"] });
+    const keepJapanese = registry.transcribe({ text, targetLocale: "", passthroughLanguages: ["ja"], allowedSystems: ["chinese"] });
+    expect(keepKorean.detectedLanguage).toBe("mixed");
+    expect(keepKorean.displayText).toBe("사랑해 愛西貼路");
+    expect(keepJapanese.displayText).toBe("撒浪嘿 愛してる");
+  });
+
+  it("transcribes both language segments when no source language is preserved", () => {
+    const result = registry.transcribe({
+      text: "사랑해 愛してる",
+      targetLocale: "",
+      passthroughLanguages: [],
+      allowedSystems: ["chinese"],
+    });
+    expect(result.detectedLanguage).toBe("mixed");
+    expect(result.displayText).toBe("撒浪嘿 愛西貼路");
   });
 
   it("supports pure Bopomofo when only Bopomofo is allowed", () => {

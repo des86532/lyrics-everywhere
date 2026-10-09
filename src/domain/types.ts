@@ -1,29 +1,3 @@
-export type SourceConnectorKind = "spotify-macos" | "windows-smtc" | "mock" | "browser";
-
-export interface TrackMetadata {
-  trackKey: string;
-  source: {
-    connector: SourceConnectorKind;
-    appId?: string;
-    sourceTrackId?: string;
-  };
-  title: string;
-  artists: string[];
-  album?: string;
-  durationMs?: number;
-  isrc?: string;
-}
-
-export type PlaybackState = "playing" | "paused" | "stopped" | "unavailable";
-
-export interface PlaybackSnapshot {
-  eventSeq: number;
-  track?: TrackMetadata;
-  state: PlaybackState;
-  positionMs?: number;
-  sampledAtMs: number;
-  playbackRate: number;
-}
 
 export interface LyricToken {
   tokenId: string;
@@ -62,19 +36,6 @@ export type PhoneticSystem = "chinese" | "bopomofo" | "latin";
 
 export type PronunciationStyle = "standard" | "singable";
 
-export interface PronunciationProfile {
-  profileId: string;
-  sourceLanguage: "auto" | "korean" | "japanese" | "english" | string;
-  targetLocale: string;
-  passthroughLanguages: string[];
-  allowedSystems: PhoneticSystem[];
-  style: PronunciationStyle;
-  display: {
-    original: boolean;
-    pronunciation: boolean;
-    translation: boolean;
-  };
-}
 
 export type TranscriptionTier = "phrase" | "syllable" | "fallback" | "passthrough";
 
@@ -104,49 +65,3 @@ export interface TranscriptionResult {
   syllables: BlendedSyllable[];
 }
 
-export interface LineAnnotation {
-  lineId: string;
-  startMs?: number;
-  endMs?: number;
-  originalText: string;
-  pronunciation?: TranscriptionResult;
-  translation?: {
-    text: string;
-    locale: string;
-  };
-}
-
-// 全篇歌譜清單（換歌或偏好變更時推播一次）
-export interface FullLyricsSheet {
-  trackKey: string;
-  lyricsId: string;
-  revision: number;
-  status: "loading" | "ready" | "unavailable";
-  allowedSystems: PhoneticSystem[];
-  lines: LineAnnotation[];
-}
-
-// 輕量播放游標（每秒 tick 即時推播）
-export interface PlaybackCursor {
-  trackKey?: string;
-  sheetRevision?: number;
-  currentLineIndex: number | null;
-  activeLineId?: string;
-  positionMs: number;
-  durationMs?: number;
-  progressPercent: number;
-  isPlaying: boolean;
-}
-
-export interface ActiveLyricDisplay {
-  currentLine?: LineAnnotation;
-  previousLine?: LineAnnotation;
-  nextLine?: LineAnnotation;
-  currentLineIndex: number | null;
-  activeLineId?: string;
-  progressPercent: number;
-  isPlaying: boolean;
-  positionMs: number;
-  durationMs?: number;
-  allowedSystems?: PhoneticSystem[];
-}
