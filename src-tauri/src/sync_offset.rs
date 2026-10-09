@@ -16,52 +16,16 @@ use serde_json::json;
 use crate::runtime::matches_current;
 use crate::server::{json_error, now_ms, AppState, SessionState, Snapshot, MAX_TRACK_KEY_CHARS};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AutoOffset {
-    Aligned(i64),
-    Zero,
-    Mismatch,
-}
-
-pub fn auto_offset(video_ms: Option<u64>, reference_ms: Option<u64>) -> AutoOffset {
-    let (Some(video), Some(reference)) = (video_ms, reference_ms) else {
-        return AutoOffset::Zero;
-    };
-    let delta = video as i64 - reference as i64;
-    if delta.abs() <= 2000 {
-        AutoOffset::Zero
-    } else if (2001..=90000).contains(&delta) {
-        AutoOffset::Aligned(delta)
-    } else {
-        AutoOffset::Mismatch
-    }
-}
-
-pub fn effective_offset(session: &SessionState) -> (i64, &'static str, bool) {
+pub fn effective_offset(session: &SessionState) -> (i64, &'static str) {
     if let Some(track) = session.snapshot.track.as_ref() {
         if let Some(&user_offset) = session.user_offsets.get(&track.track_key) {
-            return (user_offset, "user", false);
+            return (user_offset, "user");
         }
     }
     if session.sync.anchored {
-        return (0, "anchored", false);
+        return (0, "anchored");
     }
-    if session
-        .snapshot
-        .track
-        .as_ref()
-        .is_some_and(|t| t.source.connector == "browser")
-    {
-        let video_ms = session.snapshot.track.as_ref().and_then(|t| t.duration_ms);
-        let reference_ms = session.sync.reference_duration_ms;
-        match auto_offset(video_ms, reference_ms) {
-            AutoOffset::Aligned(d) => (d, "auto", false),
-            AutoOffset::Zero => (0, "none", false),
-            AutoOffset::Mismatch => (0, "none", true),
-        }
-    } else {
-        (0, "none", false)
-    }
+    (0, "none")
 }
 
 pub fn current_position_ms(snapshot: &Snapshot, now: u64) -> u64 {
@@ -136,7 +100,7 @@ pub(crate) async fn update_offset(
     if !matches_current(session.snapshot.track.as_ref(), &request.track_key) {
         return json_error(StatusCode::CONFLICT, "track is no longer current");
     }
-    let (current, _, _) = effective_offset(&session);
+    let (current, _) = effective_offset(&session);
     let mut offsets = session.user_offsets.clone();
     match request.action.as_str() {
         "nudge" => {
@@ -191,7 +155,7 @@ pub(crate) async fn update_offset(
         );
     }
     session.user_offsets = offsets;
-    let (offset_ms, origin, _) = effective_offset(&session);
+    let (offset_ms, origin) = effective_offset(&session);
     let cursor = crate::runtime::cursor_event(&session);
     drop(session);
     state.emit("playback-update", cursor);
@@ -202,26 +166,6 @@ pub(crate) async fn update_offset(
 mod tests {
     use super::*;
     use crate::server::{Profile, SyncState, Track, TrackSource};
-
-    #[test]
-    fn auto_offset_thresholds() {
-        assert_eq!(
-            auto_offset(Some(242_000), Some(214_000)),
-            AutoOffset::Aligned(28_000)
-        );
-        assert_eq!(auto_offset(Some(215_500), Some(214_000)), AutoOffset::Zero);
-        assert_eq!(auto_offset(Some(212_000), Some(214_000)), AutoOffset::Zero);
-        assert_eq!(
-            auto_offset(Some(400_000), Some(214_000)),
-            AutoOffset::Mismatch
-        );
-        assert_eq!(
-            auto_offset(Some(200_000), Some(214_000)),
-            AutoOffset::Mismatch
-        );
-        assert_eq!(auto_offset(None, Some(214_000)), AutoOffset::Zero);
-        assert_eq!(auto_offset(Some(214_000), None), AutoOffset::Zero);
-    }
 
     #[test]
     fn current_position_advances_when_playing_and_caps_at_five_seconds() {
@@ -300,35 +244,21 @@ mod tests {
                 allowed_systems: vec![],
                 source_preference: "auto".into(),
             },
-            sync: SyncState {
-                reference_duration_ms: Some(214_000),
-                anchored: false,
-            },
+            sync: SyncState::default(),
             user_offsets: HashMap::new(),
         }
     }
 
     #[test]
-    fn effective_offset_precedence_user_over_anchored_over_auto() {
+    fn effective_offset_precedence_user_over_anchored_over_none() {
         let mut session = sample_session("browser");
-        // 1. Auto kicks in: delta is 28_000
-        assert_eq!(effective_offset(&session), (28_000, "auto", false));
+        assert_eq!(effective_offset(&session), (0, "none"));
 
-        // 2. Anchored overrides auto: returns 0
         session.sync.anchored = true;
-        assert_eq!(effective_offset(&session), (0, "anchored", false));
+        assert_eq!(effective_offset(&session), (0, "anchored"));
 
-        // 3. User offset overrides anchored: returns user offset
         session.user_offsets.insert("youtube:xyz".into(), 15_000);
-        assert_eq!(effective_offset(&session), (15_000, "user", false));
-
-        // 4. Non-browser connector with no user offset returns (0, "none", false)
-        let mut spotify_session = sample_session("spotify-macos");
-        assert_eq!(effective_offset(&spotify_session), (0, "none", false));
-        spotify_session
-            .user_offsets
-            .insert("youtube:xyz".into(), 4_000);
-        assert_eq!(effective_offset(&spotify_session), (4_000, "user", false));
+        assert_eq!(effective_offset(&session), (15_000, "user"));
     }
 
     fn cleanup(state: &AppState) {
@@ -364,20 +294,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn nudge_adds_to_automatic_offset_and_survives_restart() {
+    async fn nudge_adds_to_current_offset_and_survives_restart() {
         let state = browser_state("nudge").await;
-        // sample_session: 242 s video vs 214 s reference gives an automatic +28 s offset.
         assert_eq!(
             send(&state, "youtube:xyz", "nudge", Some(2_000), None).await,
             StatusCode::OK
         );
         assert_eq!(
             state.session.lock().await.user_offsets.get("youtube:xyz"),
-            Some(&30_000)
+            Some(&2_000)
         );
         assert_eq!(
             load_offsets(&state.offsets_path).get("youtube:xyz"),
-            Some(&30_000)
+            Some(&2_000)
         );
 
         let restarted = AppState::new(state.offsets_path.parent().unwrap().to_path_buf());
@@ -388,7 +317,7 @@ mod tests {
                 .await
                 .user_offsets
                 .get("youtube:xyz"),
-            Some(&30_000)
+            Some(&2_000)
         );
         cleanup(&state);
     }
@@ -458,7 +387,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn reset_removes_manual_override_and_restores_automatic_offset() {
+    async fn reset_removes_manual_override_and_restores_no_offset() {
         let state = browser_state("reset").await;
         assert_eq!(
             send(&state, "youtube:xyz", "nudge", Some(2_000), None).await,
@@ -471,7 +400,7 @@ mod tests {
         {
             let session = state.session.lock().await;
             assert!(!session.user_offsets.contains_key("youtube:xyz"));
-            assert_eq!(effective_offset(&session), (28_000, "auto", false));
+            assert_eq!(effective_offset(&session), (0, "none"));
         }
         assert!(!load_offsets(&state.offsets_path).contains_key("youtube:xyz"));
         cleanup(&state);

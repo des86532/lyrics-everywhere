@@ -347,8 +347,8 @@
     els.offsetControls.hidden=!ready;
     if (!ready) { setCalibrating(false); return; }
     const offsetMs=Number(cursor?.lyricsOffsetMs)||0, origin=safe(cursor?.offsetOrigin);
-    const labels={user:`時間對齊：手動 ${formatOffsetSeconds(offsetMs)} 秒`, auto:`時間對齊：自動推估 ${formatOffsetSeconds(offsetMs)} 秒（影片前奏）`, anchored:"時間對齊：依影片時間軸", none:"時間對齊：0 秒"};
-    setText(els.offsetState,(labels[origin] || labels.none)+(cursor?.offsetMismatch===true?"・影片與歌詞版本長度差距大，建議校正":""));
+    const labels={user:`時間對齊：手動 ${formatOffsetSeconds(offsetMs)} 秒`, anchored:"時間對齊：依影片時間軸", none:"時間對齊：0 秒"};
+    setText(els.offsetState,labels[origin] || labels.none);
     els.offsetCalibrate.disabled=!sheet.lines.some((line)=>Number.isFinite(line.startMs));
     if (els.offsetCalibrate.disabled) setCalibrating(false);
   }
