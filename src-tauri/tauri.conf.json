@@ -24,10 +24,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": {
-      "../dist/pronunciation/*.js": "dist/pronunciation/",
-      "../dist/ui/transcriber-entry.js": "dist/ui/transcriber-entry.js"
-    },
     "windows": {
       "nsis": {
         "installMode": "currentUser"
