@@ -62,6 +62,8 @@ pub struct LyricLine {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_ms: Option<u64>,
     pub original_text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phonetic: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -73,6 +75,7 @@ pub struct LyricSheet {
     pub status: String,
     pub allowed_systems: Vec<String>,
     pub lines: Vec<LyricLine>,
+    pub lyrics_source: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -137,6 +140,12 @@ pub struct WireEvent {
     pub name: String,
     pub data: Value,
 }
+#[derive(Clone, Default)]
+pub struct SyncState {
+    pub reference_duration_ms: Option<u64>,
+    pub anchored: bool,
+}
+
 #[derive(Clone)]
 pub struct SessionState {
     pub snapshot: Snapshot,
@@ -149,6 +158,8 @@ pub struct SessionState {
     pub lyric_candidate_track_key: Option<String>,
     pub lyric_candidate_ids: Vec<u64>,
     pub profile: Profile,
+    pub sync: SyncState,
+    pub user_offsets: HashMap<String, i64>,
 }
 #[derive(Clone)]
 pub struct AppState {
@@ -156,13 +167,19 @@ pub struct AppState {
     pub reports: Arc<Mutex<HashMap<String, StoredReport>>>,
     pub events: broadcast::Sender<WireEvent>,
     pub profile_path: Arc<PathBuf>,
+    pub konger_dir: Arc<PathBuf>,
+    pub offsets_path: Arc<PathBuf>,
     pub heartbeat: Arc<Mutex<Option<StoredHeartbeat>>>,
     pub browser_error: Arc<Mutex<Option<String>>>,
 }
 
 impl AppState {
-    pub fn new(profile_path: PathBuf) -> Self {
+    pub fn new(config_dir: PathBuf) -> Self {
         let (events, _) = broadcast::channel(64);
+        let profile_path = Arc::new(config_dir.join("profile.json"));
+        let konger_dir = Arc::new(config_dir.join("konger"));
+        let offsets_path = Arc::new(config_dir.join("offsets.json"));
+        let user_offsets = crate::sync_offset::load_offsets(&offsets_path);
         let profile = load_profile(&profile_path);
         Self {
             session: Arc::new(Mutex::new(SessionState {
@@ -182,10 +199,14 @@ impl AppState {
                 lyric_candidate_track_key: None,
                 lyric_candidate_ids: Vec::new(),
                 profile,
+                sync: SyncState::default(),
+                user_offsets,
             })),
             reports: Arc::new(Mutex::new(HashMap::new())),
             events,
-            profile_path: Arc::new(profile_path),
+            profile_path,
+            konger_dir,
+            offsets_path,
             heartbeat: Arc::new(Mutex::new(None)),
             browser_error: Arc::new(Mutex::new(None)),
         }
@@ -204,6 +225,13 @@ pub fn now_ms() -> u64 {
         .unwrap_or_default()
         .as_millis()
         .min(u64::MAX as u128) as u64
+}
+
+/// 曲目相關 API 的 trackKey 長度上限（字元數）。
+pub(crate) const MAX_TRACK_KEY_CHARS: usize = 512;
+
+pub(crate) fn json_error(status: StatusCode, message: &str) -> Response {
+    (status, Json(json!({"error": message}))).into_response()
 }
 
 pub async fn serve(
@@ -227,6 +255,22 @@ pub async fn serve(
         .route("/api/lyrics/retry", post(crate::runtime::retry_lyrics))
         .route("/api/lyrics/search", post(crate::runtime::search_lyrics))
         .route("/api/lyrics/select", post(crate::runtime::select_lyrics))
+        .route(
+            "/api/lyrics/offset",
+            post(crate::sync_offset::update_offset),
+        )
+        .route(
+            "/api/konger/format",
+            post(crate::konger::format_konger)
+                .layer(DefaultBodyLimit::max(crate::konger::BODY_LIMIT)),
+        )
+        .route(
+            "/api/konger/import",
+            post(crate::konger::import_konger)
+                .layer(DefaultBodyLimit::max(crate::konger::BODY_LIMIT)),
+        )
+        .route("/api/konger/remove", post(crate::konger::remove_konger))
+        .route("/api/konger/export", post(crate::konger::export_konger))
         .nest_service("/assets", ServeDir::new(assets))
         .layer(DefaultBodyLimit::max(64 * 1024))
         .with_state(state);
@@ -267,19 +311,21 @@ pub(crate) fn source_name(source: &str) -> &str {
     }
 }
 
-fn cursor_data(session: &SessionState) -> Value {
+pub(crate) fn cursor_json(session: &SessionState) -> Value {
     let duration = session
         .snapshot
         .track
         .as_ref()
         .and_then(|track| track.duration_ms);
     let position = session.snapshot.position_ms.unwrap_or(0);
+    let (offset, origin, mismatch) = crate::sync_offset::effective_offset(session);
+    let lyric_pos = position as i64 - offset;
     let current_line_index = session.sheet.as_ref().and_then(|sheet| {
         sheet
             .lines
             .iter()
             .enumerate()
-            .filter(|(_, line)| line.start_ms.is_some_and(|start| start <= position))
+            .filter(|(_, line)| line.start_ms.is_some_and(|start| start as i64 <= lyric_pos))
             .map(|(index, _)| index)
             .last()
     });
@@ -299,20 +345,27 @@ fn cursor_data(session: &SessionState) -> Value {
                 .clamp(0.0, 100.0) as u8
         });
     json!({
+        "trackKey": session.snapshot.track.as_ref().map(|track| track.track_key.clone()),
+        "currentLineIndex": current_line_index,
+        "activeLineId": active_line_id,
+        "positionMs": position,
+        "durationMs": duration,
+        "progressPercent": progress,
+        "isPlaying": session.snapshot.state == "playing",
+        "lyricsOffsetMs": offset,
+        "offsetOrigin": origin,
+        "offsetMismatch": mismatch,
+    })
+}
+
+fn cursor_data(session: &SessionState) -> Value {
+    json!({
         "track": session.snapshot.track,
         "state": session.snapshot.state,
         "activeSource": session.active_source,
         "sourceName": session.active_source.as_deref().map(source_name),
         "diagnostics": session.diagnostics,
-        "cursor": {
-            "trackKey": session.snapshot.track.as_ref().map(|track| track.track_key.clone()),
-            "currentLineIndex": current_line_index,
-            "activeLineId": active_line_id,
-            "positionMs": position,
-            "durationMs": duration,
-            "progressPercent": progress,
-            "isPlaying": session.snapshot.state == "playing"
-        }
+        "cursor": cursor_json(session)
     })
 }
 
@@ -792,5 +845,84 @@ mod tests {
         std::fs::write(&path, "broken").unwrap();
         assert_eq!(load_profile(&path).source_preference, "auto");
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn cursor_json_applies_offset_to_line_index_and_reports_offset_metadata() {
+        use super::{
+            cursor_json, LyricLine, LyricSheet, SessionState, Snapshot, SyncState, Track,
+            TrackSource,
+        };
+        let sheet = LyricSheet {
+            track_key: "youtube:xyz".into(),
+            lyrics_id: "test".into(),
+            revision: 1,
+            status: "ready".into(),
+            allowed_systems: vec![],
+            lines: vec![
+                LyricLine {
+                    line_id: "line-1".into(),
+                    start_ms: Some(1_000),
+                    end_ms: Some(15_000),
+                    original_text: "Line 1".into(),
+                    phonetic: None,
+                },
+                LyricLine {
+                    line_id: "line-2".into(),
+                    start_ms: Some(15_000),
+                    end_ms: Some(30_000),
+                    original_text: "Line 2".into(),
+                    phonetic: None,
+                },
+            ],
+            lyrics_source: "user".into(),
+        };
+        let mut user_offsets = std::collections::HashMap::new();
+        user_offsets.insert("youtube:xyz".into(), 10_000);
+        let session = SessionState {
+            snapshot: Snapshot {
+                track: Some(Track {
+                    track_key: "youtube:xyz".into(),
+                    source: TrackSource {
+                        connector: "browser".into(),
+                        app_id: None,
+                        source_track_id: Some("xyz".into()),
+                    },
+                    title: "Song".into(),
+                    artists: vec!["Artist".into()],
+                    album: None,
+                    duration_ms: Some(180_000),
+                }),
+                state: "playing".into(),
+                position_ms: Some(5_000),
+                sampled_at_ms: 0,
+                playback_rate: 1.0,
+            },
+            sheet: Some(sheet),
+            active_source: Some("browser".into()),
+            active_browser_key: None,
+            revision: 1,
+            diagnostics: vec![],
+            manual_lyrics: true,
+            lyric_candidate_track_key: None,
+            lyric_candidate_ids: vec![],
+            profile: default_profile(),
+            sync: SyncState::default(),
+            user_offsets,
+        };
+
+        let c1 = cursor_json(&session);
+        assert_eq!(c1["currentLineIndex"], serde_json::Value::Null);
+        assert_eq!(c1["lyricsOffsetMs"], 10_000);
+        assert_eq!(c1["offsetOrigin"], "user");
+        assert_eq!(c1["offsetMismatch"], false);
+        assert_eq!(c1["positionMs"], 5_000);
+
+        let mut session2 = session.clone();
+        session2.snapshot.position_ms = Some(12_000);
+        let c2 = cursor_json(&session2);
+        assert_eq!(c2["currentLineIndex"], 0);
+        assert_eq!(c2["activeLineId"], "line-1");
+        assert_eq!(c2["positionMs"], 12_000);
     }
 }

@@ -112,6 +112,7 @@ pub async fn poll(state: AppState) {
                 session.manual_lyrics = false;
                 session.lyric_candidate_track_key = None;
                 session.lyric_candidate_ids.clear();
+                session.sync = crate::server::SyncState::default();
                 session.revision += 1;
                 session.sheet = session.snapshot.track.as_ref().map(|track| LyricSheet {
                     track_key: track.track_key.clone(),
@@ -120,6 +121,7 @@ pub async fn poll(state: AppState) {
                     status: "loading".into(),
                     allowed_systems: session.profile.allowed_systems.clone(),
                     lines: Vec::new(),
+                    lyrics_source: "none".into(),
                 });
                 (true, session.snapshot.track.clone(), source_changed)
             } else {
@@ -560,47 +562,9 @@ fn demo_snapshot() -> Candidate {
     }
 }
 
-fn cursor_event(session: &crate::server::SessionState) -> serde_json::Value {
-    let duration = session
-        .snapshot
-        .track
-        .as_ref()
-        .and_then(|track| track.duration_ms);
-    let position = session.snapshot.position_ms.unwrap_or(0);
-    let current_line_index = session.sheet.as_ref().and_then(|sheet| {
-        sheet
-            .lines
-            .iter()
-            .enumerate()
-            .filter(|(_, line)| line.start_ms.is_some_and(|start| start <= position))
-            .map(|(index, _)| index)
-            .last()
-    });
-    let active_line_id = current_line_index.and_then(|index| {
-        session
-            .sheet
-            .as_ref()?
-            .lines
-            .get(index)
-            .map(|line| line.line_id.clone())
-    });
-    let progress = duration
-        .filter(|duration| *duration > 0)
-        .map_or(0, |duration| {
-            ((position as f64 / duration as f64) * 100.0)
-                .round()
-                .clamp(0.0, 100.0) as u8
-        });
+pub(crate) fn cursor_event(session: &crate::server::SessionState) -> serde_json::Value {
     json!({
-        "cursor": {
-            "trackKey": session.snapshot.track.as_ref().map(|track| track.track_key.clone()),
-            "currentLineIndex": current_line_index,
-            "activeLineId": active_line_id,
-            "positionMs": position,
-            "durationMs": duration,
-            "progressPercent": progress,
-            "isPlaying": session.snapshot.state == "playing"
-        }
+        "cursor": crate::server::cursor_json(session)
     })
 }
 
@@ -623,7 +587,7 @@ pub(crate) struct SelectRequest {
     record_id: u64,
 }
 
-fn matches_current(track: Option<&Track>, key: &str) -> bool {
+pub(crate) fn matches_current(track: Option<&Track>, key: &str) -> bool {
     track.is_some_and(|track| track.track_key == key)
 }
 fn record_has_lyrics(record: &LrclibRecord) -> bool {
@@ -692,6 +656,11 @@ async fn apply_record(state: AppState, track_key: &str, record: LrclibRecord, ma
         if manual {
             session.manual_lyrics = true;
         }
+        session.sync = crate::server::SyncState {
+            reference_duration_ms: (record.duration > 0.0)
+                .then(|| (record.duration * 1000.0).round() as u64),
+            anchored: false,
+        };
         session.revision += 1;
         let sheet = LyricSheet {
             track_key: track_key.into(),
@@ -700,6 +669,7 @@ async fn apply_record(state: AppState, track_key: &str, record: LrclibRecord, ma
             status: "ready".into(),
             allowed_systems: session.profile.allowed_systems.clone(),
             lines,
+            lyrics_source: "lrclib".into(),
         };
         session.sheet = Some(sheet.clone());
         let track = session.snapshot.track.clone();
@@ -720,6 +690,7 @@ async fn set_lyrics_status(state: &AppState, track_key: &str, status: &str) {
         status: status.into(),
         allowed_systems: session.profile.allowed_systems.clone(),
         lines: Vec::new(),
+        lyrics_source: "none".into(),
     };
     session.sheet = Some(sheet.clone());
     let track = session.snapshot.track.clone();
@@ -779,8 +750,11 @@ async fn automatic_lookup(track: &Track) -> Result<Option<LrclibRecord>, ()> {
     });
     Ok(records.into_iter().next())
 }
-async fn resolve_track_lyrics(state: AppState, track: Track) {
+pub(crate) async fn resolve_track_lyrics(state: AppState, track: Track) {
     set_lyrics_status(&state, &track.track_key, "loading").await;
+    if crate::konger::apply_saved(&state, &track).await {
+        return;
+    }
     match automatic_lookup(&track).await {
         Ok(Some(record)) => apply_record(state, &track.track_key, record, false).await,
         Ok(None) => set_lyrics_status(&state, &track.track_key, "not-found").await,
@@ -947,17 +921,23 @@ fn parse_lrc(raw: &str) -> (String, Vec<LyricLine>) {
                 None
             },
             original_text: text.clone(),
+            phonetic: None,
         })
         .collect();
-    let digest = Sha256::digest(raw.as_bytes());
-    let hash = digest
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
-    (format!("lyrics-{}", &hash[..12]), lines)
+    (
+        format!("lyrics-{}", &sha256_hex(raw.as_bytes())[..12]),
+        lines,
+    )
 }
 
-fn remove_enhanced_timestamps(text: &str) -> String {
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+pub(crate) fn remove_enhanced_timestamps(text: &str) -> String {
     let mut output = String::with_capacity(text.len());
     let mut index = 0;
     while index < text.len() {
@@ -977,7 +957,7 @@ fn remove_enhanced_timestamps(text: &str) -> String {
     output
 }
 
-fn parse_time(value: &str) -> Option<u64> {
+pub(crate) fn parse_time(value: &str) -> Option<u64> {
     let (minutes, seconds) = value.split_once(':')?;
     let (whole, fraction) = seconds.split_once('.').unwrap_or((seconds, ""));
     let minutes = minutes.parse::<u64>().ok()?;

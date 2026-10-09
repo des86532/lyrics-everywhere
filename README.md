@@ -120,6 +120,7 @@ Windows 桌面版使用 Windows System Media Transport Controls (SMTC) 讀取播
 
 Tauri 桌面程式使用 Rust 建立本機 Companion、Windows SMTC、macOS Spotify connector 與歌詞服務，沿用既有 HTML/CSS 頁面及 TypeScript 轉寫器。桌面程式綁定 `127.0.0.1:3838`，不依賴 Electron、Node 或 .NET 執行期；Cloudflare Pages 只發布 `site/` 下載頁，沒有遠端 Companion 或共用播放 session。Chrome YouTube／YouTube Music 仍透過本機 extension 接入。
 桌面介面會提供開始使用指引與目前來源狀態；偏好與播放 metadata 保持本機，歌詞查詢、重試及候選選擇使用 LRCLIB。本產品不做原始音訊指紋辨識，也不翻譯歌詞。
+桌面版可上傳 LE-LRC v1 空耳檔（格式見 `docs/konger-format.md`），按「整理並檢查」通過後才能套用到目前曲目；套用的檔案只保存在本機，可匯出與朋友分享。Chrome YouTube 來源的時間對齊會依影片與歌詞的長度差自動推估，也可用 ±0.5 秒微調或點選某句校正，每支影片的偏移會保存在本機。
 
 ### Rust 開發與桌面建置
 

@@ -1,7 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod konger;
 mod runtime;
 mod server;
+mod sync_offset;
 
 use std::{net::TcpListener, path::PathBuf};
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
@@ -36,8 +38,8 @@ fn main() {
             } else {
                 resource_dir.join("dist")
             };
-            let profile_path = app.path().app_config_dir()?.join("profile.json");
-            let state = server::AppState::new(profile_path);
+            let config_dir = app.path().app_config_dir()?;
+            let state = server::AppState::new(config_dir);
             let app_handle = app.handle().clone();
             let app_state = state.clone();
             tauri::async_runtime::spawn(async move {
