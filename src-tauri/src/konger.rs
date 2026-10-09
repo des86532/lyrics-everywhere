@@ -1169,7 +1169,7 @@ pub(crate) async fn format_konger(
                 && sheet.lines.iter().any(|line| line.start_ms.is_some())
         })
         .map(|sheet| sheet.lines.as_slice());
-    let (effective_offset_ms, _, _) = crate::sync_offset::effective_offset(&session);
+    let (effective_offset_ms, _) = crate::sync_offset::effective_offset(&session);
     let outcome = format_input(
         &request.text,
         &FormatContext {

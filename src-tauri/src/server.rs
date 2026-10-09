@@ -318,7 +318,7 @@ pub(crate) fn cursor_json(session: &SessionState) -> Value {
         .as_ref()
         .and_then(|track| track.duration_ms);
     let position = session.snapshot.position_ms.unwrap_or(0);
-    let (offset, origin, mismatch) = crate::sync_offset::effective_offset(session);
+    let (offset, origin) = crate::sync_offset::effective_offset(session);
     let lyric_pos = position as i64 - offset;
     let current_line_index = session.sheet.as_ref().and_then(|sheet| {
         sheet
@@ -354,7 +354,6 @@ pub(crate) fn cursor_json(session: &SessionState) -> Value {
         "isPlaying": session.snapshot.state == "playing",
         "lyricsOffsetMs": offset,
         "offsetOrigin": origin,
-        "offsetMismatch": mismatch,
     })
 }
 
@@ -915,7 +914,6 @@ mod tests {
         assert_eq!(c1["currentLineIndex"], serde_json::Value::Null);
         assert_eq!(c1["lyricsOffsetMs"], 10_000);
         assert_eq!(c1["offsetOrigin"], "user");
-        assert_eq!(c1["offsetMismatch"], false);
         assert_eq!(c1["positionMs"], 5_000);
 
         let mut session2 = session.clone();
