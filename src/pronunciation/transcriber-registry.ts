@@ -4,6 +4,8 @@ import type {
 } from "../domain/types.js";
 import type { LanguageTranscriber, TranscriptionRequest } from "./language-transcriber.js";
 import { preservesLanguage } from "./language-transcriber.js";
+import { isKana } from "./japanese-transcriber.js";
+
 
 export class TranscriberRegistry {
   private transcribers = new Map<string, LanguageTranscriber>();
@@ -43,19 +45,54 @@ export class TranscriberRegistry {
   }
 
   transcribe(request: TranscriptionRequest): TranscriptionResult {
-    const transcriber = this.resolve(request.text, request.sourceLanguage);
     const systems: PhoneticSystem[] = request.allowedSystems.length > 0 ? request.allowedSystems : ["chinese"];
+    const hasKorean = /[\uac00-\ud7af\u1100-\u11ff\u3130-\u318f]/u.test(request.text);
+    const hasJapanese = Array.from(request.text).some(isKana);
+    if (hasKorean && hasJapanese) return this.transcribeMixed(request, systems);
 
-    if (!transcriber) {
-      return this.passthrough(request.text, "unknown", systems);
-    }
-
+    const transcriber = this.resolve(request.text, request.sourceLanguage);
+    if (!transcriber) return this.passthrough(request.text, "unknown", systems);
     const language = transcriber.languages[0] || "unknown";
-    if (preservesLanguage(request, language)) {
-      return this.passthrough(request.text, language, systems);
+    if (preservesLanguage(request, language)) return this.passthrough(request.text, language, systems);
+    return transcriber.transcribe({ ...request, allowedSystems: systems });
+  }
+
+  private transcribeMixed(request: TranscriptionRequest, systems: PhoneticSystem[]): TranscriptionResult {
+    const characters = Array.from(request.text);
+    const segments: Array<{ language: "ko" | "ja" | null; text: string }> = [];
+    for (let index = 0; index < characters.length; index += 1) {
+      const character = characters[index]!;
+      let language: "ko" | "ja" | null = null;
+      if (/[\uac00-\ud7af\u1100-\u11ff\u3130-\u318f]/u.test(character)) {
+        language = "ko";
+      } else if (isKana(character)) {
+        language = "ja";
+      } else if (/[\u3400-\u9fff]/u.test(character)) {
+        let next = index + 1;
+        while (next < characters.length && /[\u3400-\u9fff]/u.test(characters[next]!)) next += 1;
+        if (next < characters.length && isKana(characters[next]!)) language = "ja";
+      }
+
+      const current = segments.at(-1);
+      if (current?.language === language) current.text += character;
+      else segments.push({ language, text: character });
     }
 
-    return transcriber.transcribe({ ...request, allowedSystems: systems });
+    const results = segments.map(({ language, text }) => {
+      if (!language) return this.passthrough(text, "unknown", systems);
+      const transcriber = Array.from(this.transcribers.values()).find((candidate) =>
+        candidate.languages.some((item) => item.toLowerCase().split("-")[0] === language),
+      );
+      if (!transcriber || preservesLanguage(request, language)) return this.passthrough(text, language, systems);
+      return transcriber.transcribe({ ...request, text, allowedSystems: systems });
+    });
+    return {
+      sourceText: request.text,
+      detectedLanguage: "mixed",
+      allowedSystems: systems,
+      displayText: results.map((result) => result.displayText).join(""),
+      syllables: results.flatMap((result) => result.syllables),
+    };
   }
 
   listCapabilities(): Array<{ id: string; languages: readonly string[]; supportedSystems: readonly PhoneticSystem[] }> {

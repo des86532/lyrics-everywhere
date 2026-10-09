@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#1d1730" />
+    <meta name="description" content="在瀏覽器側欄以本機同步歌詞跟唱，或為 YouTube 合輯建立字幕。" />
+    <title>耳邊字幕 — 空耳跟唱</title>
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="masthead">
+        <a class="wordmark" href="./" aria-label="耳邊字幕，重新載入側欄">耳邊<span>字幕</span></a>
+        <div class="masthead-actions">
+          <button id="single-mode" class="button button-quiet" type="button" aria-label="重新偵測播放來源">重新偵測</button>
+          <button id="stop-capture" class="button button-stop" type="button" disabled>停止</button>
+        </div>
+      </header>
+      <div class="status-row"><span id="status-light" class="status-light" aria-hidden="true"></span><p id="status" role="status" aria-live="polite">正在讀取目前播放來源…</p></div>
+      <section class="stage" aria-labelledby="transcript-title">
+        <div class="stage-heading"><span id="mode-badge" class="mode-badge">偵測中</span><h1 id="transcript-title">正在尋找歌詞</h1></div>
+        <div id="selected-lyrics" class="selected-lyrics" hidden aria-live="polite"></div>
+        <div id="transcript" class="transcript" aria-live="polite" aria-relevant="additions text">
+          <p class="empty-state">正在讀取目前分頁的曲名與同步歌詞。</p>
+        </div>
+      </section>
+      <p id="lyric-timing-gap-status" class="timing-gap-status" role="status" aria-live="polite" hidden>MV 空白段：等待歌詞恢復。</p>
+      <section class="controls" aria-label="字幕與查詢狀態">
+        <div class="control-row">
+          <button id="load-model" class="button button-primary" type="button" hidden>載入辨識模型</button>
+          <button id="mix-first-mode" class="button button-primary" type="button" disabled hidden>建立字幕</button>
+          <button id="mix-replay-mode" class="button" type="button" hidden>重播字幕</button>
+        </div>
+        <p id="caption-help" class="fine-print caption-help" role="status" aria-live="polite" hidden></p>
+        <p id="caption-progress" class="fine-print caption-progress" aria-live="off" hidden></p>
+        <p id="ai-lookup-status" class="fine-print" aria-live="polite" hidden></p>
+        <p id="lyrics-query-status" class="fine-print" role="status" aria-live="polite" hidden></p>
+        <p id="japanese-reading-status" class="fine-print" role="status" aria-live="polite" hidden></p>
+        <progress id="model-progress" max="100" value="0" aria-label="模型下載進度" hidden></progress>
+      </section>
+      <p id="gemini-key-status" class="fine-print persistent-error" role="status" aria-live="polite"></p>
+      <p id="preferences-status" class="fine-print persistent-error" role="status" aria-live="polite"></p>
+      <nav class="drawer" aria-label="設定與工具">
+      <details id="lyric-timing-editor" class="disclosure lyric-timing" name="drawer" hidden>
+        <summary>校正歌詞時間</summary>
+        <div class="disclosure-content">
+          <p class="fine-print">在歌詞起唱時暫停影片、選擇對應歌詞，再依序記錄空白前／後對齊；只有片頭延遲時可只記錄前點。</p>
+          <label for="lyric-timing-line">目前對齊歌詞</label>
+          <select id="lyric-timing-line" disabled></select>
+          <div class="lyric-timing-actions">
+            <button id="lyric-timing-before" class="button button-secondary" type="button" disabled>記錄空白前對齊</button>
+            <button id="lyric-timing-after" class="button button-secondary" type="button" disabled>記錄空白後對齊</button>
+            <button id="lyric-timing-clear" class="button button-secondary" type="button" disabled>清除這支影片校時</button>
+          </div>
+          <p id="lyric-timing-feedback" class="fine-print" role="status" aria-live="polite"></p>
+        </div>
+      </details>
+      <details class="disclosure preferences" name="drawer">
+        <summary>顯示設定</summary>
+        <div class="disclosure-content">
+          <label for="phonetic-system">空耳顯示方式</label>
+          <select id="phonetic-system" disabled><option value="chinese">中文近音字</option><option value="bopomofo">注音</option><option value="latin">英文字母</option></select>
+          <fieldset id="preserved-languages" disabled>
+            <legend>保留原文語言</legend>
+            <label class="check-label"><input type="checkbox" value="zh" /> 中文</label>
+            <label class="check-label"><input type="checkbox" value="en" /> 英文</label>
+            <label class="check-label"><input type="checkbox" value="ja" /> 日文</label>
+            <label class="check-label"><input type="checkbox" value="ko" /> 韓文</label>
+          </fieldset>
+          <label class="check-label"><input id="show-original" type="checkbox" checked /> 同時顯示辨識原文</label>
+          <p class="fine-print">日文含假名的詞會使用本機讀音字典；純漢字無法安全區分中文與日文，會保留原文。空耳與原文分別顯示。</p>
+        </div>
+      </details>
+      <details id="gemini-settings" class="disclosure gemini-settings" name="drawer">
+        <summary>AI 曲目解析 <span id="gemini-mode">基本流程</span></summary>
+        <div class="disclosure-content">
+          <label for="gemini-key">Gemini API key（選填）</label>
+          <input id="gemini-key" type="password" autocomplete="off" spellcheck="false" maxlength="512" aria-describedby="gemini-key-help" disabled />
+          <div class="gemini-actions">
+            <button id="save-gemini-key" class="button button-secondary" type="button" disabled>儲存金鑰</button>
+            <button id="remove-gemini-key" class="button button-secondary" type="button" disabled>移除金鑰</button>
+          </div>
+          <p id="gemini-key-help" class="fine-print">使用你自己的 Gemini 配額。金鑰只保存在此瀏覽器的本機擴充功能儲存空間，可能可由此裝置上的本機使用者讀取，不會分享給我們。啟用後，影片標題送至 Google Gemini，解析的歌名與歌手送至 Apple 歌曲目錄比對；不會傳送音訊。免費方案可能會使用提交內容改善 Google 產品，請先閱讀<a href="https://ai.google.dev/gemini-api/terms#data-use" target="_blank" rel="noopener noreferrer">Gemini API 資料使用政策</a>。<a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">前往 AI Studio 建立 API 金鑰</a></p>
+        </div>
+      </details>
+      <details class="disclosure source-details" name="drawer">
+        <summary>播放來源與說明 <span id="source-mode" class="source-mode">跟隨目前分頁</span></summary>
+        <div class="disclosure-content">
+          <label for="source-tab">播放分頁</label>
+          <div class="source-row">
+            <select id="source-tab" disabled><option value="auto">跟隨目前作用中的分頁</option></select>
+            <button id="refresh-source-tabs" class="button button-secondary" type="button" aria-label="更新可選播放分頁">更新</button>
+          </div>
+          <p id="source-selection-status" class="fine-print" role="status" aria-live="polite"></p>
+          <p id="playback-source" class="fine-print" role="status" aria-live="polite">尚未讀取播放來源。</p>
+          <p id="lyrics-status" class="fine-print" role="status" aria-live="polite"></p>
+          <p class="fine-print">基本模式只向 LRCLIB 查詢歌曲；啟用 AI 時影片標題另傳 Google、曲目文字傳 Apple。合輯音訊只在本機辨識，字幕文字與時間戳保存在本機。</p>
+          <p class="fine-print">歌詞並非官方版本；自動辨識可能有誤。</p>
+        </div>
+      </details>
+      </nav>
+    </main>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

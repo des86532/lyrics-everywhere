@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { parseLrc } from "../src/lyrics/lrc-parser.js";
+import { parseLrcWithHash } from "../src/lyrics/lrc-core.js";
 
 describe("LRC Parser", () => {
+
   it("parses standard LRC format and derives line start/end timings", () => {
     const raw = `
 [ti:Spring Day]
@@ -10,7 +11,7 @@ describe("LRC Parser", () => {
 [00:15.20]이렇게 말하니까 더 보고 싶다
 [00:22.00]너희 사진을 보고 있어도
     `;
-    const result = parseLrc(raw, "bts-spring-day");
+    const result = parseLrcWithHash(raw, "bts-spring-day", "lrclib", "b".repeat(64));
 
     expect(result.format).toBe("lrc");
     expect(result.granularity).toBe("line");
@@ -33,7 +34,7 @@ describe("LRC Parser", () => {
 [offset:500]
 [00:01.00]Hello World
     `;
-    const result = parseLrc(raw, "test-offset");
+    const result = parseLrcWithHash(raw, "test-offset", "lrclib", "c".repeat(64));
     expect(result.lines[0]?.startMs).toBe(1500); // 1000 + 500
   });
 
@@ -42,7 +43,7 @@ describe("LRC Parser", () => {
 Line 1 without timestamps
 Line 2 without timestamps
     `;
-    const result = parseLrc(raw, "test-plain");
+    const result = parseLrcWithHash(raw, "test-plain", "lrclib", "d".repeat(64));
     expect(result.format).toBe("plain");
     expect(result.granularity).toBe("none");
     expect(result.lines.length).toBe(2);
