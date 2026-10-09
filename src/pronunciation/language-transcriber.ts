@@ -18,7 +18,7 @@ export function preservesLanguage(
   language: string,
 ): boolean {
   const baseLanguage = (locale: string) => locale.toLowerCase().split(/[-_]/)[0];
-  const preserved = [request.targetLocale || "zh-TW", ...(request.passthroughLanguages || [])];
+  const preserved = [request.targetLocale ?? "zh-TW", ...(request.passthroughLanguages || [])];
   return preserved.some((locale) => baseLanguage(locale) === baseLanguage(language));
 }
 
