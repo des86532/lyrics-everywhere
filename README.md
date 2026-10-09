@@ -1,111 +1,65 @@
-# Universal Sing-Along Companion (`lyrics-everywhere`)
+# 耳邊字幕（Lyrics Everywhere）
 
-> 無論音樂從哪裡播放，都能快速取得歌曲、同步目前段落，並把外語歌詞轉成台灣使用者熟悉、可直接跟唱的極簡流暢空耳（1 音節 = 1 乾淨漢字，字數極簡、跟得上節奏），並支援全曲歌詞預載與動態高亮。
+Chrome／Edge 側欄空耳跟唱工具：單曲使用 LRCLIB 同步歌詞，可選填自己的 Gemini API key 輔助解析 YouTube 標題；不填則維持基本流程。YouTube 合輯可在本機建立文字字幕後二刷跟唱；音訊辨識使用裝置上的 WebGPU Whisper。沒有 localhost companion、CLI、雲端音訊辨識、內建共用金鑰或共用字幕服務。
 
----
+## 功能
 
-## 核心設計理念與架構 (Recognize → Sync → Sing)
+- **自動單曲跟唱／指定來源**：開啟側欄預設讀取目前 YouTube、YouTube Music 或 Spotify Web 分頁；「播放來源與說明」的「播放分頁」可指定某個分頁。跟隨模式切換作用中分頁會重新匹配；指定模式切換其他分頁不換歌詞，指定分頁內換歌仍會重新匹配。指定來源關閉時會清除舊歌詞並提示重新選擇，不偷偷改用其他分頁。比對歌曲名稱與可信歌手，合併文字及行、字時間戳完全相同的重複資料，優先選片長最接近的版本，同分時依歌手別名順序、LRCLIB ID 穩定選取。多筆候選會標示「自動選版」；沒有可信歌手或有效同步歌詞時不顯示。播放資訊失聯時凍結同步位置。
+- **YouTube 音樂標題**：支援 `[MV]`／`[Official Music Video]` 等前綴及既有音樂影片後綴，辨識「歌手 - 歌名」或「歌手 _ 歌名」；保留歌手的雙語別名（含 `박재범 Jay Park`、`EXO 엑소` 這類以空白分隔的韓英名稱），英文歌名附韓文名稱時以英文名查詢，移除完整的末尾 `feat.` 合作歌手註記。`Live` 等版本標註不會被移除，後面另有版本標註時亦保留合作資訊。沒有明確音樂標籤的分隔標題與一般上傳頻道不會自動被當成可信歌手；取得資料後仍須精確匹配歌名、歌手。播放清單或推薦影片換片時，等 YouTube 頁面標題、影片 ID 與正片片長一致後才回報，避免用上一首標題或廣告片長查詞。
+- **歌名格式與查詢容錯**：LRCLIB 比對容許 `feat.`、`ft.`、`featuring`、合作演出註記、全形字元與明確列出的中／日／韓文及英文雙語名稱；支援圓括號與方括號，只有同一可信歌手的相符歌曲可套用。不採用子字串或模糊相似度猜歌；`Live`、`Cover`、`Remix`、`Acoustic`、`Part 2` 等錄音或未知版本註記不會當成一般合作註記刪除。每首查詢至多三個歌手別名及兩個明列歌名，同時最多兩個 LRCLIB 請求；HTTP 429／5xx 會自動重試兩次（0.5、1.2 秒後）。單一別名失敗不會丟棄其他成功結果，且成功搜尋回傳的資料可匹配任一已驗證歌手別名。部分查詢失敗會在主畫面提示並保留可用歌詞；重試後仍全部失敗會直接顯示 HTTP／網路原因，不冒稱「沒有歌詞」。可按「重新偵測」再查，不會改用其他歌手。
+- **特別剪輯提示**：普通 YouTube 影片標題含 `Special Clip`、`Medley`、`Mashup`、`메들리` 等多首歌標記時，側欄顯示「特別剪輯」並說明沒有能對齊整支影片的單一歌詞，不自動查詢，改提供本機「建立字幕」入口；`Making Video`、`Behind the scenes`、`Teaser`、訪談等非完整歌曲影片則顯示「非完整歌曲」。
+- **選填 BYOK 曲目解析**：展開「AI 曲目解析」填入自己的 Gemini API key 後，普通 YouTube 單曲標題先由 Gemini 3.1 Flash-Lite 解析，再用 Apple 歌曲目錄核對完整歌名、歌手、錄音版本與片長，最後以 Apple 曲目資料精確匹配 LRCLIB 同步歌詞。每次解析最多查詢六次 Apple 目錄；歧義、不符、額度不足、權限或網路錯誤會提示原因並回到基本流程，不拿 AI 生成文字冒充歌詞。沒有 key、Spotify、YouTube Music 的結構化曲目及合輯章節仍走原本流程。成功／未確認的曲目結果只快取於目前側欄，換 key 或移除 key 會取消查詢、清除 AI 快取及舊歌詞；重新開啟側欄會重新解析。
+- **無歌詞影片建立字幕**：只有已取得有效 YouTube `/watch` 來源、但沒有可用同步歌詞時，才顯示「載入辨識模型」、「建立字幕」及「重播字幕」。模型由使用者點擊才下載、啟動，正常同步歌詞跟唱不載入 Whisper。「建立字幕」須模型就緒且影片停在 0 秒、暫停、1× 才可按；連接成功後再播放，一路播至結束。畫面顯示實際收到的音訊秒數、已辨識窗口及字幕行數；首段須收滿 12 秒，再等待本機辨識，之後每 10 秒更新。靜音／低音量與沒有新增可用字幕會分別提示。啟動或辨識失敗後保留原因及重新準備入口，不自動重新錄製。
+- **合輯二刷跟唱**：只載入同一 `mediaId` 且片長完全相符的完整字幕快取；依播放、暫停與 seek 顯示文字。完成首遍後字幕保留在畫面，可直接從頭重播。未完成草稿不能二刷。建立與重播均鎖定指定來源分頁，切換前景分頁不停止；更換來源前先按「停止」。
+- **五行跟唱視窗**：單曲同步歌詞與合輯二刷字幕顯示目前位置及前後共五行，通常保留前兩行與後兩行；歌曲開頭、結尾會用其餘相鄰行補足。空白時間提示不計入五行，不足五行時顯示全部可用文字；原文與空耳屬於同一行歌詞。
+- **MV 歌詞手動校時**：普通 YouTube 單曲取得同步歌詞後，可展開「校正歌詞時間」，在歌詞起唱時暫停影片並選對應歌詞，依序記錄空白前／後對齊；只有片頭延遲時可只記第一點。校正僅套用於該影片 ID 與該份歌詞內容，保存在本機 `storage.local`；空白期間不高亮後段歌詞，從第二點起恢復同步。清除只移除目前影片與歌詞版本的校正。
+- **歌詞優先介面與顯示偏好**：側欄採深茄紫「練歌房夜光」配色；頂部只留標誌、「重新偵測」、「停止」與狀態燈，歌詞區使用剩餘高度並可捲動。正在唱的那行以珊瑚粉螢光筆底線標示，尚未開唱的下一行用點狀底線，已唱過的行轉淡。「校正歌詞時間」、「顯示設定」、「AI 曲目解析」、「播放來源與說明」收在底部抽屜，同時只展開一個；來源與偏好儲存錯誤仍會直接顯示。原文與空耳相同時只顯示一行。空耳方式單選中文近音字、注音或英文字母；原文保留語言可多選中文、英文、日文、韓文，也可全部不選。偏好儲存在 extension `storage.local`，變更後即時重算目前顯示，不重新執行 ASR。日文含假名的詞使用隨附的本機讀音字典處理漢字讀音與假名；純漢字段無法安全區分中日文，會保留原文。
 
-本產品定位為 **Universal Sing-Along Companion**，非音樂播放器，亦不綁定單一平台：
+## 隱私與限制
 
-1. **Recognize (辨識)**：
-   - 透過 OS Media Session / Spotify Desktop 本地 Connector 取得目前播放歌曲之 Title、Artist、Album、Duration 與 Position。
-   - 不依賴私有未受保護 API，macOS 優先採用穩定的 Apple Events / Scripting Dictionary。
-2. **Sync (同步 & 全曲預載)**：
-   - **全篇歌譜預先載入 (`FullLyricsSheet`)**：換歌時立即透過 SSE 一次性交付全曲所有行（原文 ＋ 極簡空耳），讓使用者在歌曲開唱前即可縱覽全篇歌詞。
-   - **輕量游標推播 (`PlaybackCursor`)**：播放進行中每秒僅推送輕量游標，動態高亮目前段落，並平滑自動滾動置中。
-   - **手動瀏覽防干擾保護 (4 秒保護)**：使用者向上或向下滾動瀏覽全曲時，自動暫停置中 4 秒（右下角提供「📍 回到目前段落」快捷鍵），避免強制拉回影響閱讀。
-3. **Sing (跟唱 - 簡潔空耳與原文保留)**：
-   - 韓文與日文歌詞由本機確定性轉寫器產生簡潔空耳；目前沒有接入 AI 文字生成 API。
-   - 韓文收音不再有「簡潔／精準」模式切換，簡潔輸出為唯一模式；可選擇漢字、Bopomofo 或 Latin 顯示方式。
-   - 日文假名會轉寫；日文漢字不會被當成假名轉寫。
-   - 原文保留語言合併為一組多選設定（預設繁體中文，且至少保留一種）。這只控制顯示時保留哪些原文，不會翻譯歌詞。
-   - 例如預設中文原文、勾選保留英文時，韓文會轉成空耳，英文片段（如 `ABC`）維持原樣。
+- 合輯擷取只使用使用者操作時鎖定的 YouTube 分頁 `tabCapture`，只擷取音訊並保留分頁原聲；不擷取畫面、桌面／系統混音。擴充功能圖示透過 `chrome.action.onClicked` 開啟側欄並取得目前分頁的 `activeTab` 授權；直接開側欄或只按側欄按鈕不等於授權其他分頁。指定其他來源時，須先切到該 YouTube 分頁點圖示，再建立字幕。沒有新增全網站或 `tabs` 權限。
+- PCM 音訊只在本機 Worker 與 WebGPU Whisper 處理，不上傳。IndexedDB 只保存辨識文字與時間戳，不保存音訊樣本或空耳。
+- 第一次合輯首播需要下載 Whisper 模型權重；LRCLIB 搜尋只傳歌曲名稱與歌手。Extension 需要網路取得模型與 LRCLIB 資料。
+- 日文讀音使用隨擴充功能打包的 Kuromoji／IPADIC 離線字典，不會把歌詞傳到網路；字典檔及 Apache-2.0、IPADIC NOTICE、WanaKana MIT 授權文字一併發布。純漢字段不查字典。
+- 選填 AI 時，原始影片標題送至 Google Gemini，解析後的歌名與歌手送至 Apple Search API；音訊不送到這兩個服務。API key 只寫入 extension `storage.local`，不使用 `storage.sync`；本機 storage 限制為 trusted extension contexts，播放頁的 content script 不可讀取。輸入框不回填已儲存的 key；key 僅經 `x-goog-api-key` header 送至 Google，不放進網址、提示詞、播放報告、字幕或 AI 快取。不提供加密保管承諾，本機使用者及 extension DevTools 仍可能讀取。
+- API 配額與可能產生的費用由自己的 Google 專案承擔；填 key 不等於無限免費，需確認 [Gemini 方案與價格](https://ai.google.dev/gemini-api/docs/pricing)。免費方案可能使用提交內容改善 Google 產品，啟用前請閱讀 [Gemini API 資料使用政策](https://ai.google.dev/gemini-api/terms#data-use)。我們不提供共用 key、代理服務或共用免費額度。
+- 合輯首遍中斷、seek、變速、換片、來源失聯、音軌中斷、ASR 佇列溢位或儲存失敗，都會將草稿標記為未完成。
+- 需要桌面 Chrome／Edge 116+、WebGPU、AudioWorklet 與 extension 側欄。未提供 CPU 備援。
+- YouTube 播放清單與 SPA 換片可能使目前網址不同於 Chrome 訊息的初始文件網址；播放報告驗證同一 HTTPS origin，並獨立檢查目前網址、影片 ID 與進度，不要求完整網址字串相等。
+- 自動選版只比較歌曲資料與片長，不會自動偵測或校正 MV 片頭、剪輯、不同錄音版本造成的時間差；需要使用者手動記錄歌詞對齊點。片長接近不代表歌詞時間軸已驗證完全吻合。
+- 音訊辨識及其快取都標示「音訊推測」；Whisper 可能誤認歌詞、口音或背景音樂，不是官方字幕。
+- Extension 重載後，若目前支援的播放頁沒有訊息接收器，會以 `scripting` 在原分頁補載播放腳本；不刷新 YouTube，也不在其他網站注入。YouTube 的主頁面 chapter bridge 與隔離播放腳本分開載入，重複注入會清理舊 listener、timer。若使用者拒絕網站存取權限，仍須先允許擴充功能讀取該網站。
 
----
+## 安裝與使用
 
-## 顯示與語言偏好
+1. 安裝依賴並建置 extension：
 
-Companion 歌詞頁提供唯一的簡潔空耳輸出。原文保留語言以同一組多選控制，預設繁體中文且至少保留一種；選取語言維持原文，未選取語言照常轉寫。這些設定不是歌詞翻譯，也不會呼叫 AI 服務。
+   ```bash
+   pnpm install
+   pnpm run lint:extension
+   pnpm run build:extension
+   ```
 
-拼音工具一次選擇一種顯示方式：中文漢字、台灣注音或英文字母；所選方式套用到轉寫結果。
+2. 在 Chrome 開啟 `chrome://extensions`，或在 Edge 開啟 `edge://extensions`，啟用開發人員模式並載入本專案的 `browser-extension/` 目錄。
+   每次重新建置後，在擴充功能管理頁按「重新載入」，關閉再重開側欄即可；既有 YouTube 播放頁不必刷新。載入目錄仍是 `browser-extension/`，不是 `extension-ui/` 或 `browser-extension/app/`。
+3. 在 YouTube、YouTube Music 或 Spotify Web 播放歌曲，點擊 extension 圖示開啟側欄。
+4. 側欄自動取得目前歌曲並比對同步歌詞；必要時可按小型「重新偵測」按鈕。展開「播放來源與說明」，在「播放分頁」選擇要固定的分頁；選「跟隨目前作用中的分頁」則恢復自動跟隨。「更新」可重列已開啟的播放分頁。這個來源選擇不寫入顯示偏好。該區也顯示平台、歌手、播放狀態及 LRCLIB 選版資訊。YouTube 沒有可信歌手時仍回報影片標題，但不猜測歌詞；沒有播放器、廣告中、網站權限不足或報告驗證失敗時會直接顯示來源診斷。
+   選填 AI：到 [Google AI Studio](https://aistudio.google.com/app/apikey) 建立 Gemini API key，展開「AI 曲目解析」，輸入後按「儲存金鑰」。已開啟的 YouTube 單曲會重新解析；成功時顯示「AI 曲目」及 LRCLIB 選版資訊。沒有 key 不需要額外設定；按「移除金鑰」會立即停止 AI 查詢並改回基本流程。輸入框留空再按儲存不會刪除既有 key，請使用移除按鈕。
+5. 若 YouTube 影片沒有可用同步歌詞，才會出現本機字幕選項：
+   1. 在**要擷取的 YouTube 分頁**點擴充功能圖示，取得該分頁授權；若已指定另一個來源，先改選正確分頁。
+   2. 按「載入辨識模型」，等待模型就緒。
+   3. 把影片停在 **0 秒、暫停、1×**；準備提示會指出缺少哪個條件。
+   4. 按「建立字幕」，先保持暫停；**看到狀態「音訊已連接」後才按影片播放**，不是先播放再建立。
+   5. 首段至少需要 **12 秒實際音訊＋本機辨識時間**。依收音秒數及窗口進度判斷是否正常，不會立刻出字；靜音或沒有辨識結果會明確提示。
+   6. 持續播放至結束，不暫停、seek、變速或換片；可以切換其他前景分頁，字幕仍跟隨鎖定來源。完成後字幕保留，可從頭重播；已有完整字幕時也可按「重播字幕」，不需載入模型。要更換來源，先按「停止」。
+6. 展開「顯示設定」選擇空耳系統與原文保留語言；選項載入本機偏好前會暫時停用。若瀏覽器無法讀寫 extension storage，仍可變更當頁顯示，但會在收折區外提示偏好無法儲存。
 
----
-
-## 模組劃分
-
-- `src/domain/types.ts`：不可變資料合約 (`TrackMetadata`, `FullLyricsSheet`, `PlaybackCursor`, `PronunciationProfile`, `LineAnnotation`)。
-- `src/connectors/`：播放來源抽象介面 (`MediaConnector`)、macOS Spotify 本地串接 (`SpotifyMacConnector`)、測試模擬器 (`MockConnector`)。
-- `src/lyrics/`：LRC 時間戳解析器 (`parseLrc`)、LRCLIB API 客戶端與候選評分器 (`LrclibClient`)。
-- `src/pronunciation/`：
-  - `korean-homophone-data.ts`：擴充開音節矩陣、濁化調諧與對齊式語法助詞庫。
-  - `blended-homophone.ts`：單音節收音融合與簡潔空耳合成核心。
-  - `korean-engine.ts` & `korean-transcriber.ts`：整行音韻序列 G2P 引擎與簡潔空耳轉寫。
-  - `japanese-transcriber.ts`：日語五十音假名與常用片語轉寫。
-  - `transcriber-registry.ts`：多語言動態分流、原文語言保留與註冊中心。
-- `src/session/`：播放工作階段協調器 (`PlaybackSession`)，管理全曲歌譜生命週期與游標推播。
-- `src/ui/`：全曲歌詞滾動視圖與 Companion 伺服端 (`CompanionServer`)，提供 SSE 全曲/游標分流、語言偏好與手動滾動防干擾機制。
-
----
-
-## 快速開始
-
-### 1. 安裝相依套件
-
-```bash
-pnpm install
-```
-
-### 2. 執行單元測試
+## 開發驗證
 
 ```bash
 pnpm test
+pnpm run lint:extension
+pnpm run build:extension
 ```
 
-### 3. 建置專案
-
-```bash
-pnpm run build
-```
-
-### 4. 啟動展示模式 (Demo Mode)
-
-在未開啟 Spotify 或任何作業系統環境下，均可啟動示範模擬：
-
-```bash
-node dist/cli.js --demo
-```
-
-- **全篇歌詞一次預載**：開唱前即完整展示全曲原文與簡潔空耳。
-- **即時段落動態高亮**：當前行金色放大高亮，並平滑自動滾動置中。
-- **手動滾動防拉回**：手動上下滑動時暫停自動滾動 4 秒，提供「📍 回到目前段落」按鈕。
-- **原文語言偏好**：預設保留繁體中文原文；可在同一組設定中多選其他要保留原文的語言.
-
-### 5. macOS Spotify 串接模式
-
-在 macOS 上開啟並播放 Spotify 歌曲，直接執行：
-
-```bash
-node dist/cli.js
-```
-## YouTube / YouTube Music 支援
-
-macOS 正常模式可同時接收 Spotify 與 Chrome YouTube 來源。YouTube 偵測透過本機 Chrome MV3 extension，不使用 YouTube API key。
-
-### 啟動
-
-1. 建置並啟動 companion：bash: pnpm install; pnpm run build; node dist/cli.js --source auto
-2. 在 Chrome 開啟 chrome://extensions，啟用「開發人員模式」，選擇本專案的 browser-extension/ 目錄載入 unpacked extension。
-3. 開啟 https://www.youtube.com/watch?v=... 或 https://music.youtube.com/ 播放歌曲，再開啟 http://localhost:3838。
-
-可用來源模式：
-- --source auto：macOS 優先保留目前播放中的來源；同時開始時 Spotify 優先，YouTube 可透過 browser report 接入。
-- --source youtube：只接收 Chrome YouTube extension。
-- --source spotify：只接收 macOS Spotify；非 macOS 會回報錯誤。
-- --demo：使用內建模擬曲目，不偵測外部媒體。
-
-### 支援範圍與限制
-
-目前支援目標為 macOS + Chrome Stable，涵蓋一般 YouTube watch 與 YouTube Music 的 title、artist、play/pause、position、duration、playback rate 與 SPA 換片；實際 Chrome 端到端驗收需依下列步驟載入 extension 後執行。Chrome extension 只把必要的播放 metadata 傳送到本機 127.0.0.1:3838；歌詞查詢仍會送至既有 LRCLIB client。
-
-一般 YouTube 的 channel 可能不是實際歌手，因此 artist 與 LRCLIB 命中是 best effort。Safari、未實測的 Chromium 衍生瀏覽器、Shorts、直播、投放到其他裝置與 DRM 不在支援承諾內。廣告不會被當成新 track；extension 或 companion 失聯超過 freshness TTL 後，來源會變成 unavailable。
+來源主要分層：`browser-extension/` 負責播放報告驗證、側欄訊息轉送與 tabCapture 權限閘門；`extension-ui/src/` 是側欄、LRCLIB、合輯 ASR 與文字快取原始碼，建置至 `browser-extension/app/`。`song-resolver.ts` 負責 Gemini 結構化解析與 Apple 曲目核對，`gemini-settings.ts` 負責本機 key 格式及儲存；`src/pronunciation/` 提供韓文與日文轉寫器。舊 Node／companion 的根目錄 `dist/` 不再使用，也不會由 extension 建置產生。
