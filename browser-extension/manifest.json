@@ -1,14 +1,44 @@
 {
   "manifest_version": 3,
-  "name": "Lyrics Everywhere YouTube Connector",
+  "minimum_chrome_version": "116",
+  "name": "Lyrics Everywhere Media Connector",
   "version": "0.1.0",
-  "description": "Reports YouTube and YouTube Music playback to the local Lyrics Everywhere companion.",
-  "permissions": [],
-  "host_permissions": ["http://127.0.0.1:3838/*"],
+  "description": "Captures locked YouTube tab audio locally and reports optional playback metadata.",
+  "permissions": ["sidePanel", "tabCapture", "activeTab", "storage", "scripting"],
+  "host_permissions": [
+    "https://huggingface.co/*",
+    "https://*.huggingface.co/*",
+    "https://hf.co/*",
+    "https://*.hf.co/*",
+    "https://lrclib.net/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://itunes.apple.com/*",
+    "https://www.youtube.com/*",
+    "https://music.youtube.com/*",
+    "https://open.spotify.com/*"
+  ],
   "background": { "service_worker": "service-worker.js" },
-  "content_scripts": [{
-    "matches": ["https://www.youtube.com/watch*", "https://music.youtube.com/*"],
-    "js": ["content-script.js"],
-    "run_at": "document_idle"
-  }]
+  "action": { "default_title": "Open Lyrics Everywhere" },
+  "side_panel": { "default_path": "app/index.html" },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["youtube-page-bridge.js"],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://www.youtube.com/*", "https://music.youtube.com/*"],
+      "js": ["content-script.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://open.spotify.com/*"],
+      "js": ["spotify-content-script.js"],
+      "run_at": "document_idle"
+    }
+  ]
 }
