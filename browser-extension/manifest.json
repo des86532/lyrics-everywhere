@@ -4,6 +4,10 @@
   "name": "Lyrics Everywhere Media Connector",
   "version": "0.1.0",
   "description": "Captures locked YouTube tab audio locally and reports optional playback metadata.",
+  "icons": {
+    "32": "icons/32x32.png",
+    "128": "icons/128x128.png"
+  },
   "permissions": ["sidePanel", "tabCapture", "activeTab", "storage", "scripting"],
   "host_permissions": [
     "https://huggingface.co/*",
@@ -18,7 +22,13 @@
     "https://open.spotify.com/*"
   ],
   "background": { "service_worker": "service-worker.js" },
-  "action": { "default_title": "Open Lyrics Everywhere" },
+  "action": {
+    "default_title": "Open Lyrics Everywhere",
+    "default_icon": {
+      "32": "icons/32x32.png",
+      "128": "icons/128x128.png"
+    }
+  },
   "side_panel": { "default_path": "app/index.html" },
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"

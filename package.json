@@ -5,10 +5,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "build": "vite build --config extension-ui/vite.config.ts",
+    "lint": "tsc --project extension-ui/tsconfig.json --noEmit",
     "build:extension": "vite build --config extension-ui/vite.config.ts",
-    "lint:extension": "tsc --project extension-ui/tsconfig.json --noEmit"
+    "lint:extension": "tsc --project extension-ui/tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@huggingface/transformers": "^3.7.2",
