@@ -52,9 +52,12 @@
     .track-title { margin:0; font-size:clamp(1.2rem,2.6vw,1.7rem); line-height:1.3; overflow-wrap:anywhere; }
     .artist { margin:5px 0 0; color:var(--muted); }
     .state-copy { max-width:280px; color:var(--muted); font-size:.86rem; text-align:right; }
-    .lyrics-heading { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:14px 0 3px; }
+    .lyrics-heading { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; padding:14px 0 3px; }
     .lyrics-heading h2 { margin:0; color:var(--muted); font-size:.78rem; letter-spacing:.12em; text-transform:uppercase; }
     #lyrics { min-height:0; overflow:auto; padding:8px clamp(0px,4vw,44px); scrollbar-color:#455464 transparent; }
+    .offset-controls { display:inline-flex; flex-wrap:wrap; align-items:center; gap:8px; }
+    .offset-controls[hidden] { display:none; }
+    #lyrics.calibrating { cursor:pointer; }
     .lyric-row { margin:6px 0; padding:13px 16px; border-radius:8px; text-align:center; opacity:.7; line-height:1.55; overflow-wrap:anywhere; }
     .lyric-row.active { opacity:1; border-left:2px solid var(--sync); background:linear-gradient(90deg,#89ced11b,#89ced108 70%,transparent); }
     .lyric-text { font-size:clamp(1.12rem,2.1vw,1.55rem); }
@@ -65,6 +68,8 @@
     .actions { display:flex; flex-wrap:wrap; align-items:center; gap:9px; padding:12px 0 0; }
     .secondary { background:transparent; }
     .manual { margin-top:10px; }
+    #konger-text { width:100%; min-height:220px; font:inherit; background:#0c141d; color:var(--ink); border:1px solid #455666; border-radius:8px; padding:8px 10px; }
+    .konger-example { margin:8px 0 0; padding:10px; overflow:auto; white-space:pre; border:1px solid var(--line); border-radius:8px; background:#0c141d; color:var(--ink); font-family:var(--mono); font-size:.8rem; line-height:1.6; }
     .manual-form { display:grid; grid-template-columns:1fr 1fr auto; gap:10px; align-items:end; }
     .candidates { display:grid; gap:8px; margin:12px 0 0; padding:0; list-style:none; }
     .candidate { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:12px; border:1px solid var(--line); border-radius:9px; padding:12px; background:#0c141d; }
@@ -121,15 +126,36 @@
         <div id="playback-message" class="state-copy" aria-live="polite">桌面播放器或 Chrome YouTube 尚未提供曲目。</div>
       </div>
       <section class="lyrics-region" aria-label="歌詞">
-        <div class="lyrics-heading"><h2>歌詞</h2><button id="return-to-current" class="small-button secondary" type="button" hidden>回到目前段落</button><span id="lyrics-state" class="muted" role="status" aria-live="polite">等待曲目</span></div>
+        <div class="lyrics-heading"><h2>歌詞</h2><button id="return-to-current" class="small-button secondary" type="button" hidden>回到目前段落</button><span id="offset-controls" class="offset-controls" hidden><span id="offset-state" class="muted" role="status" aria-live="polite"></span><button id="offset-minus" class="small-button secondary" type="button">−0.5 秒</button><button id="offset-plus" class="small-button secondary" type="button">+0.5 秒</button><button id="offset-calibrate" class="small-button secondary" type="button" aria-pressed="false">點選歌詞校正</button><button id="offset-reset" class="small-button secondary" type="button">重設</button></span><span id="lyrics-state" class="muted" role="status" aria-live="polite">等待曲目</span></div>
+        <p id="calibrate-hint" class="note" hidden>在歌手唱出某一句的瞬間，點那一句</p>
         <div id="lyrics" tabindex="0" aria-label="可捲動歌詞"><div class="empty"><strong>還沒有正在播放的曲目</strong>開始播放後，這裡會顯示可用歌詞與同步進度。</div></div>
       </section>
       <div>
-        <div class="actions"><button id="retry-lyrics" type="button" disabled>重新搜尋歌詞</button><button id="manual-toggle" class="secondary" type="button" aria-expanded="false" aria-controls="manual-panel" disabled>手動搜尋 LRCLIB</button><span id="lyrics-feedback" class="muted" role="status" aria-live="polite"></span></div>
+        <div class="actions"><button id="retry-lyrics" type="button" disabled>重新搜尋歌詞</button><button id="manual-toggle" class="secondary" type="button" aria-expanded="false" aria-controls="manual-panel" disabled>手動搜尋 LRCLIB</button><button id="konger-toggle" class="secondary" type="button" aria-expanded="false" aria-controls="konger-panel" disabled>上傳空耳</button><span id="lyrics-feedback" class="muted" role="status" aria-live="polite"></span></div>
         <section id="manual-panel" class="panel manual" hidden>
           <h2>手動搜尋 LRCLIB</h2><p class="note">可修改標題與歌手後搜尋；搜尋只傳送這兩項文字與目前曲目識別碼，不會傳送歌詞。</p>
           <form id="search-form" class="manual-form"><div><label class="field-label" for="search-title">曲名</label><input id="search-title" name="title" type="text" required autocomplete="off"></div><div><label class="field-label" for="search-artist">歌手</label><input id="search-artist" name="artist" type="text" required autocomplete="off"></div><button type="submit">搜尋曲目</button></form>
           <div id="candidate-status" class="muted" role="status" aria-live="polite"></div><ul id="candidates" class="candidates" aria-label="LRCLIB 搜尋結果"></ul>
+        </section>
+        <section id="konger-panel" class="panel manual" hidden>
+          <h2>上傳空耳</h2>
+          <p class="note">空耳檔為 LE-LRC v1 格式，與 LRC 相容，必須含 [le:version:1]。貼上或選擇檔案後按「整理並檢查」；通過後才能套用到這首歌，套用的檔案只存在這台電腦。</p>
+          <details class="note"><summary>格式範例（韓文歌，時間軸以歌曲為準）</summary><pre class="konger-example">[ti:봄날]
+[ar:BTS]
+[length:04:34.00]
+[le:version:1]
+[le:lang:ko]
+[le:anchor:song]
+[00:15.20]나를 사랑으로 채워줘요
+[00:15.20]那路 撒郎呃路 七我走有
+[00:19.80]사랑의 배터리가
+[00:19.80]撒郎耶 呸特里嘎
+[00:24.00]</pre></details>
+          <div><label class="field-label" for="konger-file">選擇 .lrc 或 .txt 檔案</label><input id="konger-file" type="file" accept=".lrc,.txt"></div>
+          <textarea id="konger-text" rows="12" aria-label="空耳檔內容"></textarea>
+          <div class="note"><label><input type="checkbox" id="konger-anchor-video" disabled> 時間以這支影片為準（組曲、翻唱、剪輯版）</label></div>
+          <div class="actions"><button id="konger-format" type="button">整理並檢查</button><button id="konger-import" type="button" disabled>套用到這首歌</button><button id="konger-export" class="secondary" type="button">匯出我的空耳</button><button id="konger-remove" class="secondary" type="button" hidden>移除我的空耳</button></div>
+          <div id="konger-report" class="muted" role="status" aria-live="polite"></div>
         </section>
       </div>
     </main>
@@ -138,11 +164,12 @@
 <script>
 (() => {
   const $ = (selector) => document.querySelector(selector);
-  const els = { title:$("#track-title"), artist:$("#track-artist"), badge:$("#playback-badge"), message:$("#playback-message"), source:$("#source-status"), lyrics:$("#lyrics"), lyricsState:$("#lyrics-state"), retry:$("#retry-lyrics"), manualToggle:$("#manual-toggle"), manual:$("#manual-panel"), form:$("#search-form"), searchTitle:$("#search-title"), searchArtist:$("#search-artist"), candidateStatus:$("#candidate-status"), candidates:$("#candidates"), feedback:$("#lyrics-feedback"), progress:$("#progress"), elapsed:$("#elapsed"), duration:$("#duration"), profileStatus:$("#profile-status"), sourcePref:$("#source-pref"), locale:$("#locale-pref") };
+  const els = { title:$("#track-title"), artist:$("#track-artist"), badge:$("#playback-badge"), message:$("#playback-message"), source:$("#source-status"), lyrics:$("#lyrics"), lyricsState:$("#lyrics-state"), retry:$("#retry-lyrics"), manualToggle:$("#manual-toggle"), manual:$("#manual-panel"), form:$("#search-form"), searchTitle:$("#search-title"), searchArtist:$("#search-artist"), candidateStatus:$("#candidate-status"), candidates:$("#candidates"), feedback:$("#lyrics-feedback"), progress:$("#progress"), elapsed:$("#elapsed"), duration:$("#duration"), profileStatus:$("#profile-status"), sourcePref:$("#source-pref"), locale:$("#locale-pref"), konger:$("#konger-panel"), kongerToggle:$("#konger-toggle"), kongerFile:$("#konger-file"), kongerText:$("#konger-text"), kongerAnchor:$("#konger-anchor-video"), kongerFormat:$("#konger-format"), kongerImport:$("#konger-import"), kongerExport:$("#konger-export"), kongerRemove:$("#konger-remove"), kongerReport:$("#konger-report"), offsetControls:$("#offset-controls"), offsetState:$("#offset-state"), offsetMinus:$("#offset-minus"), offsetPlus:$("#offset-plus"), offsetCalibrate:$("#offset-calibrate"), offsetReset:$("#offset-reset"), calibrateHint:$("#calibrate-hint") };
   let profileSettings = { targetLocale: "zh-TW", passthroughLanguages: [], allowedSystems: ["chinese"] };
   let transcribeDisplayText = null;
   void import("/assets/ui/transcriber-entry.js").then((module) => { transcribeDisplayText = module.transcribeDisplayText; renderLyrics(); }).catch(() => { els.feedback.textContent="注音轉寫模組無法載入，仍可檢視原文歌詞。"; });
   let track = null, sheet = null, cursor = null, requestSerial = 0, searchSerial = 0;
+  let calibrating = false, kongerSerial = 0, checkedText = null, checkedGrade = null;
   let resumeScrollTimer = null;
   window.userScrolledLyrics = false;
   const sourceNames = {browser:"Chrome YouTube", "spotify-macos":"Spotify（macOS）", "windows-smtc":"Windows 系統媒體"};
@@ -169,6 +196,7 @@
     track=next; sheet=null; cursor=null; requestSerial++; searchSerial++;
     window.userScrolledLyrics=false; clearTimeout(resumeScrollTimer); $("#return-to-current").hidden=true;
     els.manual.hidden=true; els.manualToggle.setAttribute("aria-expanded","false"); clearCandidates(); setText(els.feedback,"");
+    resetKonger(next); setCalibrating(false);
     const initialArtist=Array.isArray(next?.artists)?next.artists.join(", "):safe(next?.artist); els.searchTitle.value=safe(next?.title); els.searchArtist.value=initialArtist;
     els.retry.disabled=!next?.trackKey; els.manualToggle.disabled=!next?.trackKey;
     if (!next) { els.title.textContent="等待播放"; els.artist.textContent="先啟動支援的播放器"; }
@@ -176,6 +204,7 @@
     renderLyrics();
   }
   function renderLyrics() {
+    renderControls();
     els.lyrics.replaceChildren();
     if (!track) { els.lyricsState.textContent="等待曲目"; els.lyrics.append(empty("還沒有正在播放的曲目","開始播放後，這裡會顯示可用歌詞與同步進度。")); return; }
     const status=safe(sheet?.status);
@@ -185,7 +214,7 @@
       const copy={loading:["正在尋找這首歌的歌詞","可以稍候，或使用下方按鈕重新搜尋。"], "not-found":["目前找不到歌詞","試試手動搜尋 LRCLIB，或確認曲名與歌手資訊。"], unavailable:["目前找不到歌詞","試試手動搜尋 LRCLIB，或確認曲名與歌手資訊。"], error:["歌詞載入失敗","請重新搜尋；如果問題持續，稍後再試。"]}[status] || ["等待歌詞","播放來源已提供曲目後，會在這裡尋找歌詞。"];
       els.lyrics.append(empty(copy[0],copy[1])); return;
     }
-    els.lyricsState.textContent="歌詞已載入";
+    els.lyricsState.textContent=sheet.lyricsSource==="user"?"已套用使用者空耳":"歌詞已載入";
     sheet.lines.forEach((line,index)=>{
       const row=document.createElement("article"); row.className="lyric-row";
       row.dataset.lineId=safe(line.lineId);
@@ -242,12 +271,18 @@
     els.progress.style.width=Number(duration)>0?`${Math.min(100,Math.max(0,Number(position)/Number(duration)*100))}%`:"0%";
     if (data.track?.trackKey && sheet?.trackKey!==data.track.trackKey) { sheet=null; renderLyrics(); }
     syncActiveLine();
+    renderControls();
   }
   async function api(path,body) {
     const response=await fetch(path,{method:body===undefined?"GET":"POST",headers:body===undefined?{}:{"Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body)});
     let payload={}; try { payload=await response.json(); } catch {}
     if (!response.ok) throw new Error(safe(payload.error || payload.message) || `請求失敗（${response.status}）`);
     return payload;
+  }
+  async function apiRaw(path,body) {
+    const response=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    let payload={}; try { payload=await response.json(); } catch {}
+    return {ok:response.ok,status:response.status,payload};
   }
   function sourceOptions(supported=[]) {
     const choices=[{id:"auto",label:"自動選擇"},{id:"browser",label:"Chrome YouTube"}];
@@ -288,6 +323,109 @@
   els.form.addEventListener("submit",async(event)=>{event.preventDefault(); const key=track?.trackKey; if(!key)return; const title=els.searchTitle.value.trim(), artist=els.searchArtist.value.trim(); const serial=++searchSerial; clearCandidates("正在搜尋 LRCLIB…"); try{const result=await api("/api/lyrics/search",{trackKey:key,title,artist}); if(track?.trackKey!==key || serial!==searchSerial)return; const candidates=Array.isArray(result.candidates)?result.candidates:[]; if(!candidates.length){clearCandidates("沒有符合的曲目。請調整曲名或歌手後重試。");return;} clearCandidates(`${candidates.length} 個搜尋結果`); candidates.forEach((candidate)=>{
       const li=document.createElement("li"); li.className="candidate"; const info=document.createElement("div"); const titleNode=document.createElement("div"); titleNode.className="candidate-title"; titleNode.textContent=safe(candidate.trackName)||"未提供曲名"; const meta=document.createElement("div"); meta.className="candidate-meta"; const details=[safe(candidate.artistName),safe(candidate.albumName)].filter(Boolean); meta.textContent=details.join(" · ") || "未提供歌手或專輯資訊"; const type=document.createElement("span"); type.className="candidate-type"; type.textContent=candidate.synced?"同步歌詞":"純歌詞"; info.append(titleNode,meta,type); const duration=document.createElement("div"); duration.className="candidate-meta"; duration.textContent=Number.isFinite(Number(candidate.duration))&&Number(candidate.duration)>0?formatTime(Number(candidate.duration)*1000):"未提供長度"; const select=document.createElement("button"); select.type="button"; select.textContent="選擇此版本"; select.addEventListener("click",async()=>{if(track?.trackKey!==key)return; select.disabled=true; try{await api("/api/lyrics/select",{trackKey:key,recordId:candidate.id}); if(track?.trackKey===key){clearCandidates("已選擇此版本，正在載入歌詞…"); els.feedback.textContent="選擇只套用於目前播放工作階段。";}}catch(error){if(track?.trackKey===key){els.candidateStatus.textContent=`選擇失敗：${error.message}`; select.disabled=false;}}}); li.append(info,duration,select); els.candidates.append(li);
     });}catch(error){if(track?.trackKey===key && serial===searchSerial)clearCandidates(`搜尋失敗：${error.message}。請稍後再試。`);}});
+  const gradeLabels={pass:"通過", warn:"可套用，但有提醒", reject:"未通過，請修正後再套用"};
+  function renderReport(report,error) {
+    els.kongerReport.replaceChildren();
+    if (!report) { setText(els.kongerReport,error); return; }
+    const heading=document.createElement("strong"); heading.textContent=gradeLabels[report.grade] || "無法判斷檢查結果"; els.kongerReport.append(heading);
+    const issues=Array.isArray(report.issues)?report.issues:[];
+    if (issues.length) { const list=document.createElement("ul"); issues.forEach((issue)=>{ const item=document.createElement("li"); item.textContent=`${Number.isInteger(issue.line)?`第 ${issue.line} 行：`:""}${safe(issue.message)}`; list.append(item); }); els.kongerReport.append(list); }
+  }
+  function updateImportButton() { els.kongerImport.disabled=!(checkedText!==null && checkedGrade!==null && checkedGrade!=="reject" && els.kongerText.value===checkedText); }
+  function markUnchecked() { checkedText=null; checkedGrade=null; updateImportButton(); }
+  function resetKonger(next) {
+    kongerSerial++; checkedText=null; checkedGrade=null;
+    els.konger.hidden=true; els.kongerToggle.setAttribute("aria-expanded","false"); els.kongerToggle.disabled=!next?.trackKey;
+    els.kongerText.value=""; els.kongerFile.value=""; els.kongerAnchor.checked=false; els.kongerAnchor.disabled=next?.source?.connector!=="browser";
+    els.kongerReport.replaceChildren(); updateImportButton();
+  }
+  function setCalibrating(on) { calibrating=on; els.lyrics.classList.toggle("calibrating",on); els.calibrateHint.hidden=!on; els.offsetCalibrate.setAttribute("aria-pressed",String(on)); }
+  function formatOffsetSeconds(ms) { const seconds=Math.round(Number(ms)/100)/10; return `${seconds>0?"+":""}${seconds.toFixed(1)}`; }
+  function renderControls() {
+    const ready=!!track && sheet?.status==="ready" && Array.isArray(sheet.lines) && sheet.lines.length>0;
+    els.kongerRemove.hidden=sheet?.lyricsSource!=="user";
+    els.offsetControls.hidden=!ready;
+    if (!ready) { setCalibrating(false); return; }
+    const offsetMs=Number(cursor?.lyricsOffsetMs)||0, origin=safe(cursor?.offsetOrigin);
+    const labels={user:`時間對齊：手動 ${formatOffsetSeconds(offsetMs)} 秒`, auto:`時間對齊：自動推估 ${formatOffsetSeconds(offsetMs)} 秒（影片前奏）`, anchored:"時間對齊：依影片時間軸", none:"時間對齊：0 秒"};
+    setText(els.offsetState,(labels[origin] || labels.none)+(cursor?.offsetMismatch===true?"・影片與歌詞版本長度差距大，建議校正":""));
+    els.offsetCalibrate.disabled=!sheet.lines.some((line)=>Number.isFinite(line.startMs));
+    if (els.offsetCalibrate.disabled) setCalibrating(false);
+  }
+  async function sendOffset(body) {
+    const key=track?.trackKey; if(!key) return false;
+    try { await api("/api/lyrics/offset",{trackKey:key,...body}); return true; }
+    catch(error) { if(track?.trackKey===key) setText(els.feedback,`時間對齊失敗：${error.message}`); return false; }
+  }
+  els.offsetMinus.addEventListener("click",()=>void sendOffset({action:"nudge",deltaMs:-500}));
+  els.offsetPlus.addEventListener("click",()=>void sendOffset({action:"nudge",deltaMs:500}));
+  els.offsetReset.addEventListener("click",()=>void sendOffset({action:"reset"}));
+  els.offsetCalibrate.addEventListener("click",()=>setCalibrating(!calibrating));
+  els.lyrics.addEventListener("click",async(event)=>{
+    if(!calibrating) return;
+    const row=event.target instanceof Element ? event.target.closest(".lyric-row") : null;
+    if(!row) return;
+    if(await sendOffset({action:"align-line",lineId:safe(row.dataset.lineId)})) setCalibrating(false);
+  });
+  els.kongerToggle.addEventListener("click",()=>{const open=els.konger.hidden; els.konger.hidden=!open; els.kongerToggle.setAttribute("aria-expanded",String(open)); if(open) els.kongerText.focus();});
+  els.kongerFile.addEventListener("change",()=>{
+    const file=els.kongerFile.files?.[0]; if(!file) return;
+    const reader=new FileReader();
+    reader.onload=()=>{ els.kongerText.value=String(reader.result ?? ""); markUnchecked(); setText(els.kongerReport,"已讀入檔案，請按「整理並檢查」。"); };
+    reader.onerror=()=>setText(els.kongerReport,"無法讀取檔案，請改用貼上文字。");
+    reader.readAsText(file);
+    els.kongerFile.value="";
+  });
+  els.kongerText.addEventListener("input",markUnchecked);
+  els.kongerAnchor.addEventListener("change",markUnchecked);
+  els.kongerFormat.addEventListener("click",async()=>{
+    const key=track?.trackKey; if(!key) return;
+    const text=els.kongerText.value, serial=++kongerSerial;
+    els.kongerFormat.disabled=true; setText(els.kongerReport,"正在整理並檢查…");
+    try {
+      const result=await apiRaw("/api/konger/format",{trackKey:key,text,anchorVideo:els.kongerAnchor.checked});
+      if(track?.trackKey!==key || serial!==kongerSerial) return;
+      if(!result.ok) { markUnchecked(); setText(els.kongerReport,result.payload.error || "整理失敗，請稍後再試。"); return; }
+      if(els.kongerText.value!==text) { markUnchecked(); setText(els.kongerReport,"文字已修改，請重新整理並檢查。"); return; }
+      const checked=typeof result.payload.draft==="string" ? result.payload.draft : text;
+      els.kongerText.value=checked; checkedText=checked; checkedGrade=result.payload.report?.grade ?? "reject";
+      renderReport(result.payload.report);
+      updateImportButton();
+    } catch(error) { if(track?.trackKey===key && serial===kongerSerial) { markUnchecked(); setText(els.kongerReport,`檢查失敗：${error.message}`); } }
+    finally { if(track?.trackKey===key) els.kongerFormat.disabled=false; }
+  });
+  els.kongerImport.addEventListener("click",async()=>{
+    const key=track?.trackKey, text=checkedText;
+    if(!key || text===null || els.kongerText.value!==text) return;
+    const serial=++kongerSerial;
+    els.kongerImport.disabled=true; setText(els.kongerReport,"正在套用…");
+    try {
+      const result=await apiRaw("/api/konger/import",{trackKey:key,text});
+      if(track?.trackKey!==key || serial!==kongerSerial) return;
+      if(result.payload.report) { checkedGrade=result.payload.report.grade; renderReport(result.payload.report); }
+      else setText(els.kongerReport,result.payload.error || "套用失敗，請稍後再試。");
+      if(result.ok) setText(els.feedback,"已套用到這首歌。");
+    } catch(error) { if(track?.trackKey===key && serial===kongerSerial) setText(els.kongerReport,`套用失敗：${error.message}`); }
+    finally { if(track?.trackKey===key) updateImportButton(); }
+  });
+  els.kongerExport.addEventListener("click",async()=>{
+    const key=track?.trackKey; if(!key) return;
+    const serial=++kongerSerial;
+    try {
+      const result=await api("/api/konger/export",{trackKey:key});
+      if(track?.trackKey!==key || serial!==kongerSerial) return;
+      els.kongerText.value=safe(result.text); markUnchecked();
+      let copied=false; try { await navigator.clipboard.writeText(els.kongerText.value); copied=true; } catch {}
+      if(track?.trackKey===key) setText(els.kongerReport,copied?"已複製，可貼給朋友或存成 .lrc":"已放到文字框，請手動複製");
+    } catch(error) { if(track?.trackKey===key) setText(els.kongerReport,`匯出失敗：${error.message}`); }
+  });
+  els.kongerRemove.addEventListener("click",async()=>{
+    const key=track?.trackKey; if(!key) return;
+    els.kongerRemove.disabled=true;
+    try { await api("/api/konger/remove",{trackKey:key}); if(track?.trackKey===key) setText(els.kongerReport,"已移除，正在重新搜尋歌詞…"); }
+    catch(error) { if(track?.trackKey===key) setText(els.kongerReport,`移除失敗：${error.message}`); }
+    finally { els.kongerRemove.disabled=false; }
+  });
   const events=new EventSource("/events");
   events.addEventListener("lyrics-sheet",(event)=>{try{const data=JSON.parse(event.data); const incomingTrack=data.track || null; if(incomingTrack?.trackKey && incomingTrack.trackKey!==track?.trackKey) resetForTrack(incomingTrack); else if(incomingTrack && !track) resetForTrack(incomingTrack); if(!track || (data.sheet?.trackKey && data.sheet.trackKey!==track.trackKey)) return; sheet=data.sheet || null; renderLyrics(); if(sheet?.status==="not-found" || sheet?.status==="unavailable") els.lyricsState.textContent="找不到歌詞"; else if(sheet?.status==="error") els.lyricsState.textContent="歌詞服務發生錯誤";}catch{els.lyricsState.textContent="歌詞狀態無法讀取";}});
   events.addEventListener("playback-update",(event)=>{try{setPlayback(JSON.parse(event.data));}catch{els.message.textContent="播放狀態讀取失敗，請確認桌面程式仍在執行。";}});
