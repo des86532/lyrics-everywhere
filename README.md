@@ -8,7 +8,7 @@ Chrome／Edge 側欄空耳跟唱工具：單曲使用 LRCLIB 同步歌詞，可�
 - **YouTube 音樂標題**：支援 `[MV]`／`[Official Music Video]` 等前綴及既有音樂影片後綴，辨識「歌手 - 歌名」或「歌手 _ 歌名」；保留歌手的雙語別名（含 `박재범 Jay Park`、`EXO 엑소` 這類以空白分隔的韓英名稱），英文歌名附韓文名稱時以英文名查詢，移除完整的末尾 `feat.` 合作歌手註記。`Live` 等版本標註不會被移除，後面另有版本標註時亦保留合作資訊。沒有明確音樂標籤的分隔標題與一般上傳頻道不會自動被當成可信歌手；取得資料後仍須精確匹配歌名、歌手。播放清單或推薦影片換片時，等 YouTube 頁面標題、影片 ID 與正片片長一致後才回報，避免用上一首標題或廣告片長查詞。
 - **歌名格式與查詢容錯**：LRCLIB 比對容許 `feat.`、`ft.`、`featuring`、合作演出註記、全形字元與明確列出的中／日／韓文及英文雙語名稱；支援圓括號與方括號，只有同一可信歌手的相符歌曲可套用。不採用子字串或模糊相似度猜歌；`Live`、`Cover`、`Remix`、`Acoustic`、`Part 2` 等錄音或未知版本註記不會當成一般合作註記刪除。每首查詢至多三個歌手別名及兩個明列歌名，同時最多兩個 LRCLIB 請求；HTTP 429／5xx 會自動重試兩次（0.5、1.2 秒後）。單一別名失敗不會丟棄其他成功結果，且成功搜尋回傳的資料可匹配任一已驗證歌手別名。部分查詢失敗會在主畫面提示並保留可用歌詞；重試後仍全部失敗會直接顯示 HTTP／網路原因，不冒稱「沒有歌詞」。可按「重新偵測」再查，不會改用其他歌手。
 - **特別剪輯提示**：普通 YouTube 影片標題含 `Special Clip`、`Medley`、`Mashup`、`메들리` 等多首歌標記時，側欄顯示「特別剪輯」並說明沒有能對齊整支影片的單一歌詞，不自動查詢，改提供本機「建立字幕」入口；`Making Video`、`Behind the scenes`、`Teaser`、訪談等非完整歌曲影片則顯示「非完整歌曲」。
-- **選填 BYOK 曲目解析**：展開「AI 曲目解析」填入自己的 Gemini API key 後，普通 YouTube 單曲標題先由 Gemini 3.1 Flash-Lite 解析，再用 Apple 歌曲目錄核對完整歌名、歌手、錄音版本與片長，最後以 Apple 曲目資料精確匹配 LRCLIB 同步歌詞。每次解析最多查詢六次 Apple 目錄；歧義、不符、額度不足、權限或網路錯誤會提示原因並回到基本流程，不拿 AI 生成文字冒充歌詞。沒有 key、Spotify、YouTube Music 的結構化曲目及合輯章節仍走原本流程。成功／未確認的曲目結果只快取於目前側欄，換 key 或移除 key 會取消查詢、清除 AI 快取及舊歌詞；重新開啟側欄會重新解析。
+- **YouTube 曲目資訊與選填 BYOK 解析**：普通 YouTube 單曲在 LRCLIB 精確比對失敗後，先讀取影片頁「音樂」區塊的曲名與歌手（不需 key）；只有唯一一首歌時採用，合輯或 medley 不採用，標示「YouTube 曲目資訊」。仍無結果且已在「AI 曲目解析」填入自己的 Gemini API key 時，由 Gemini 3.1 Flash-Lite 搭配 Google Search 查出官方曲名與歌手，再以 LRCLIB 比對並套用片長容差，標示「AI 曲名」並顯示「不是這首」。歧義、不符、額度不足或網路錯誤會提示原因並回到基本流程，不拿 AI 生成文字冒充歌詞。Spotify、YouTube Music 的結構化曲目及合輯章節不進行上述解析，仍走原本流程。成功／未確認的 AI 曲目結果只快取於目前側欄，換 key 或移除 key 會取消查詢、清除 AI 快取及舊歌詞；重新開啟側欄會重新解析。
 - **無歌詞影片建立字幕**：只有已取得有效 YouTube `/watch` 來源、但沒有可用同步歌詞時，才顯示「載入辨識模型」、「建立字幕」及「重播字幕」。模型由使用者點擊才下載、啟動，正常同步歌詞跟唱不載入 Whisper。「建立字幕」須模型就緒且影片停在 0 秒、暫停、1× 才可按；連接成功後再播放，一路播至結束。畫面顯示實際收到的音訊秒數、已辨識窗口及字幕行數；首段須收滿 12 秒，再等待本機辨識，之後每 10 秒更新。靜音／低音量與沒有新增可用字幕會分別提示。啟動或辨識失敗後保留原因及重新準備入口，不自動重新錄製。
 - **合輯二刷跟唱**：只載入同一 `mediaId` 且片長完全相符的完整字幕快取；依播放、暫停與 seek 顯示文字。完成首遍後字幕保留在畫面，可直接從頭重播。未完成草稿不能二刷。建立與重播均鎖定指定來源分頁，切換前景分頁不停止；更換來源前先按「停止」。
 - **五行跟唱視窗**：單曲同步歌詞與合輯二刷字幕顯示目前位置及前後共五行，通常保留前兩行與後兩行；歌曲開頭、結尾會用其餘相鄰行補足。空白時間提示不計入五行，不足五行時顯示全部可用文字；原文與空耳屬於同一行歌詞。
@@ -20,8 +20,9 @@ Chrome／Edge 側欄空耳跟唱工具：單曲使用 LRCLIB 同步歌詞，可�
 - 合輯擷取只使用使用者操作時鎖定的 YouTube 分頁 `tabCapture`，只擷取音訊並保留分頁原聲；不擷取畫面、桌面／系統混音。擴充功能圖示透過 `chrome.action.onClicked` 開啟側欄並取得目前分頁的 `activeTab` 授權；直接開側欄或只按側欄按鈕不等於授權其他分頁。指定其他來源時，須先切到該 YouTube 分頁點圖示，再建立字幕。沒有新增全網站或 `tabs` 權限。
 - PCM 音訊只在本機 Worker 與 WebGPU Whisper 處理，不上傳。IndexedDB 只保存辨識文字與時間戳，不保存音訊樣本或空耳。
 - 第一次合輯首播需要下載 Whisper 模型權重；LRCLIB 搜尋只傳歌曲名稱與歌手。Extension 需要網路取得模型與 LRCLIB 資料。
+- YouTube 音樂區塊以影片 ID 向 `youtube.com` 發出不帶 cookie 的請求讀取該影片頁面，頁面解析只在本機進行，不需要任何金鑰。
 - 日文讀音使用隨擴充功能打包的 Kuromoji／IPADIC 離線字典，不會把歌詞傳到網路；字典檔及 Apache-2.0、IPADIC NOTICE、WanaKana MIT 授權文字一併發布。純漢字段不查字典。
-- 選填 AI 時，原始影片標題送至 Google Gemini，解析後的歌名與歌手送至 Apple Search API；音訊不送到這兩個服務。API key 只寫入 extension `storage.local`，不使用 `storage.sync`；本機 storage 限制為 trusted extension contexts，播放頁的 content script 不可讀取。輸入框不回填已儲存的 key；key 僅經 `x-goog-api-key` header 送至 Google，不放進網址、提示詞、播放報告、字幕或 AI 快取。不提供加密保管承諾，本機使用者及 extension DevTools 仍可能讀取。
+- 選填 AI 時，原始影片標題與片長送至 Google Gemini；YouTube 歌手未驗證時另送頻道名稱。Gemini 回傳的官方曲名與歌手只用於 LRCLIB 查詢及側欄顯示；音訊不送到 Gemini。API key 只寫入 extension `storage.local`，不使用 `storage.sync`；本機 storage 限制為 trusted extension contexts，播放頁的 content script 不可讀取。輸入框不回填已儲存的 key；key 僅經 `x-goog-api-key` header 送至 Google，不放進網址、提示詞、播放報告、字幕或 AI 快取。不提供加密保管承諾，本機使用者及 extension DevTools 仍可能讀取。
 - API 配額與可能產生的費用由自己的 Google 專案承擔；填 key 不等於無限免費，需確認 [Gemini 方案與價格](https://ai.google.dev/gemini-api/docs/pricing)。免費方案可能使用提交內容改善 Google 產品，啟用前請閱讀 [Gemini API 資料使用政策](https://ai.google.dev/gemini-api/terms#data-use)。我們不提供共用 key、代理服務或共用免費額度。
 - 合輯首遍中斷、seek、變速、換片、來源失聯、音軌中斷、ASR 佇列溢位或儲存失敗，都會將草稿標記為未完成。
 - 需要桌面 Chrome／Edge 116+、WebGPU、AudioWorklet 與 extension 側欄。未提供 CPU 備援。
@@ -44,7 +45,7 @@ Chrome／Edge 側欄空耳跟唱工具：單曲使用 LRCLIB 同步歌詞，可�
    每次重新建置後，在擴充功能管理頁按「重新載入」，關閉再重開側欄即可；既有 YouTube 播放頁不必刷新。載入目錄仍是 `browser-extension/`，不是 `extension-ui/` 或 `browser-extension/app/`。
 3. 在 YouTube、YouTube Music 或 Spotify Web 播放歌曲，點擊 extension 圖示開啟側欄。
 4. 側欄自動取得目前歌曲並比對同步歌詞；必要時可按小型「重新偵測」按鈕。展開「播放來源與說明」，在「播放分頁」選擇要固定的分頁；選「跟隨目前作用中的分頁」則恢復自動跟隨。「更新」可重列已開啟的播放分頁。這個來源選擇不寫入顯示偏好。該區也顯示平台、歌手、播放狀態及 LRCLIB 選版資訊。YouTube 沒有可信歌手時仍回報影片標題，但不猜測歌詞；沒有播放器、廣告中、網站權限不足或報告驗證失敗時會直接顯示來源診斷。
-   選填 AI：到 [Google AI Studio](https://aistudio.google.com/app/apikey) 建立 Gemini API key，展開「AI 曲目解析」，輸入後按「儲存金鑰」。已開啟的 YouTube 單曲會重新解析；成功時顯示「AI 曲目」及 LRCLIB 選版資訊。沒有 key 不需要額外設定；按「移除金鑰」會立即停止 AI 查詢並改回基本流程。輸入框留空再按儲存不會刪除既有 key，請使用移除按鈕。
+   選填 AI：到 [Google AI Studio](https://aistudio.google.com/app/apikey) 建立 Gemini API key，展開「AI 曲目解析」，輸入後按「儲存金鑰」。已開啟的 YouTube 單曲會重新解析；若 YouTube 音樂區塊已能取得唯一曲目，會先採用並顯示「YouTube 曲目資訊」且不呼叫 Gemini，否則成功時顯示「AI 曲名」及 LRCLIB 選版資訊。沒有 key 不需要額外設定；按「移除金鑰」會立即停止 AI 查詢並改回基本流程。輸入框留空再按儲存不會刪除既有 key，請使用移除按鈕。
 5. 若 YouTube 影片沒有可用同步歌詞，才會出現本機字幕選項：
    1. 在**要擷取的 YouTube 分頁**點擴充功能圖示，取得該分頁授權；若已指定另一個來源，先改選正確分頁。
    2. 按「載入辨識模型」，等待模型就緒。
@@ -62,4 +63,4 @@ pnpm run lint:extension
 pnpm run build:extension
 ```
 
-來源主要分層：`browser-extension/` 負責播放報告驗證、側欄訊息轉送與 tabCapture 權限閘門；`extension-ui/src/` 是側欄、LRCLIB、合輯 ASR 與文字快取原始碼，建置至 `browser-extension/app/`。`song-resolver.ts` 負責 Gemini 結構化解析與 Apple 曲目核對，`gemini-settings.ts` 負責本機 key 格式及儲存；`src/pronunciation/` 提供韓文與日文轉寫器。舊 Node／companion 的根目錄 `dist/` 不再使用，也不會由 extension 建置產生。
+來源主要分層：`browser-extension/` 負責播放報告驗證、側欄訊息轉送與 tabCapture 權限閘門；`extension-ui/src/` 是側欄、LRCLIB、合輯 ASR 與文字快取原始碼，建置至 `browser-extension/app/`。`youtube-music-credit.ts` 負責讀取 YouTube 音樂區塊；`song-resolver.ts` 負責 Gemini 搭配 Google Search 的官方曲名解析，`gemini-settings.ts` 負責本機 key 格式及儲存；`src/pronunciation/` 提供韓文與日文轉寫器。舊 Node／companion 的根目錄 `dist/` 不再使用，也不會由 extension 建置產生。
