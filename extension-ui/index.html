@@ -30,6 +30,7 @@
           <button id="load-model" class="button button-primary" type="button" hidden>載入辨識模型</button>
           <button id="mix-first-mode" class="button button-primary" type="button" disabled hidden>建立字幕</button>
           <button id="mix-replay-mode" class="button" type="button" hidden>重播字幕</button>
+          <button id="ai-match-reject" class="button button-secondary" type="button" hidden>不是這首</button>
         </div>
         <p id="caption-help" class="fine-print caption-help" role="status" aria-live="polite" hidden></p>
         <p id="caption-progress" class="fine-print caption-progress" aria-live="off" hidden></p>
@@ -80,7 +81,7 @@
             <button id="save-gemini-key" class="button button-secondary" type="button" disabled>儲存金鑰</button>
             <button id="remove-gemini-key" class="button button-secondary" type="button" disabled>移除金鑰</button>
           </div>
-          <p id="gemini-key-help" class="fine-print">使用你自己的 Gemini 配額。金鑰只保存在此瀏覽器的本機擴充功能儲存空間，可能可由此裝置上的本機使用者讀取，不會分享給我們。啟用後，影片標題送至 Google Gemini，解析的歌名與歌手送至 Apple 歌曲目錄比對；不會傳送音訊。免費方案可能會使用提交內容改善 Google 產品，請先閱讀<a href="https://ai.google.dev/gemini-api/terms#data-use" target="_blank" rel="noopener noreferrer">Gemini API 資料使用政策</a>。<a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">前往 AI Studio 建立 API 金鑰</a></p>
+          <p id="gemini-key-help" class="fine-print">使用你自己的 Gemini 配額。金鑰只保存在此瀏覽器的本機擴充功能儲存空間，可能可由此裝置上的本機使用者讀取，不會分享給我們。只有在 LRCLIB 查不到同名歌詞時，影片標題與頻道名稱才會送至 Google Gemini，並由 Gemini 使用 Google 搜尋查詢正式曲名；不會傳送音訊。免費方案可能會使用提交內容改善 Google 產品，請先閱讀<a href="https://ai.google.dev/gemini-api/terms#data-use" target="_blank" rel="noopener noreferrer">Gemini API 資料使用政策</a>。<a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">前往 AI Studio 建立 API 金鑰</a></p>
         </div>
       </details>
       <details class="disclosure source-details" name="drawer">
@@ -94,7 +95,7 @@
           <p id="source-selection-status" class="fine-print" role="status" aria-live="polite"></p>
           <p id="playback-source" class="fine-print" role="status" aria-live="polite">尚未讀取播放來源。</p>
           <p id="lyrics-status" class="fine-print" role="status" aria-live="polite"></p>
-          <p class="fine-print">基本模式只向 LRCLIB 查詢歌曲；啟用 AI 時影片標題另傳 Google、曲目文字傳 Apple。合輯音訊只在本機辨識，字幕文字與時間戳保存在本機。</p>
+          <p class="fine-print">基本模式只向 LRCLIB 查詢歌曲；啟用 AI 且 LRCLIB 查不到時，影片標題另傳 Google Gemini（含 Google 搜尋）。合輯音訊只在本機辨識，字幕文字與時間戳保存在本機。</p>
           <p class="fine-print">歌詞並非官方版本；自動辨識可能有誤。</p>
         </div>
       </details>
