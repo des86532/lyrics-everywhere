@@ -278,6 +278,11 @@ describe("YouTube chapter playback reports", () => {
   });
 
   it("accepts a featured credit or visualizer label after a quoted title but not teaser or live tails", () => {
+    expect(reportForVideoTitle("Epik High (에픽하이) ‘Screen Time’ ft. Hoshi of SEVENTEEN Official MV")).toMatchObject({
+      title: "Screen Time",
+      artists: ["Epik High", "Epik High (에픽하이)", "에픽하이"],
+      artistVerified: true,
+    });
     expect(reportForVideoTitle("Epik High (에픽하이) 'Screen Time (B-Roll Version)' ft. Hoshi Visualizer")).toMatchObject({
       title: "Screen Time (B-Roll Version)",
       artists: ["Epik High", "Epik High (에픽하이)", "에픽하이"],
