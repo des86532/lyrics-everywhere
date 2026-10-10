@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
-import { parseRecordLyrics, searchLyrics, searchLyricsForArtists, selectAutomaticLyrics } from "../extension-ui/src/lyrics.js";
+import { parseRecordLyrics, searchLyrics, searchLyricsForArtists, searchLyricsForIdentity, selectAutomaticLyrics } from "../extension-ui/src/lyrics.js";
 
 const record = (syncedLyrics?: string) => ({ id: 42, trackName: "Haru Haru", artistName: "BIGBANG", syncedLyrics });
 
@@ -102,5 +102,46 @@ describe("browser lyrics helpers", () => {
     const fetcher: typeof fetch = async (input) => Response.json(new URL(String(input)).searchParams.get("track_name") === "Lies" ? [available] : []);
     const result = await searchLyricsForArtists("거짓말 (Lies)", ["BIGBANG"], fetcher);
     expect(result.recordsByArtist[0].map(({ trackName }) => trackName)).toEqual(["Lies"]);
+  });
+
+  it("searches lyrics for identity, filters out mismatched artists, and enforces duration gate", async () => {
+    const fetcher: typeof fetch = async (input) => {
+      const url = new URL(String(input));
+      const trackName = url.searchParams.get("track_name");
+      if (trackName?.includes("TOESA")) {
+        return Response.json([
+          { id: 38491641, trackName: "I’m gonna TOESA", artistName: "JEON SOYEON", duration: 212, syncedLyrics: "[00:07.02]퇴사할게요" },
+          { id: 38526054, trackName: "I’m gonna TOESA (Narr. KIAN84)", artistName: "SOYEON", duration: 211, syncedLyrics: "[00:07.02]퇴사할게요" },
+          { id: 99999999, trackName: "I’m gonna TOESA", artistName: "Shin Giwon", duration: 212, syncedLyrics: "[00:07.02]퇴사할게요" },
+        ]);
+      }
+      if (trackName === "Quit") {
+        return Response.json([
+          { id: 2270441, trackName: "Quit", artistName: "SOYEON", duration: 190, syncedLyrics: "[00:12.78]이제 끌지 말고" },
+        ]);
+      }
+      return Response.json([]);
+    };
+
+    const identity = {
+      titles: ["퇴사할게여 (Narr. 기안84)", "I'm gonna TOESA (Narr. KIAN84)", "I'm gonna TOESA", "Quit"],
+      artists: ["SOYEON", "JEON SOYEON", "소연"],
+    };
+
+    const { candidates, failures } = await searchLyricsForIdentity(identity, 212_000, fetcher);
+    const ids = new Set(candidates.map((c) => c.id));
+    expect(ids).toEqual(new Set([38491641, 38526054]));
+    expect(ids.has(2270441)).toBe(false);
+    expect(ids.has(99999999)).toBe(false);
+    expect(failures).toEqual([]);
+  });
+
+  it("rejects when all lyrics searches fail with HTTP 503 and no retries", async () => {
+    const fetcher: typeof fetch = async () => new Response("service unavailable", { status: 503 });
+    const identity = {
+      titles: ["Song A", "Song B"],
+      artists: ["Artist A"],
+    };
+    await expect(searchLyricsForIdentity(identity, 200_000, fetcher, [])).rejects.toThrow("所有歌詞查詢均失敗");
   });
 });

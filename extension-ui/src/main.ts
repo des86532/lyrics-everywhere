@@ -6,7 +6,8 @@ import { TranscriberRegistry } from "../../src/pronunciation/transcriber-registr
 import type { PhoneticSystem } from "../../src/domain/types.js";
 import { TranscriptLines, type TranscriptLine, type TimestampedChunk } from "./transcript-lines.js";
 import type { SyncedLyrics } from "../../src/domain/types.js";
-import { searchLyricsForArtists, selectAutomaticLyrics } from "./lyrics.js";
+import { searchLyricsForArtists, searchLyricsForIdentity, selectAutomaticLyrics, type LrclibRecord } from "./lyrics.js";
+import { fetchYouTubeMusicCredit, type YouTubeMusicCredit } from "./youtube-music-credit.js";
 import { exactSyncedCandidatesForArtists, lyricWindowStart, LYRICS_WINDOW_SIZE, mixReplayWindow, playbackPositionAt, playbackTrackPositionAt, specialVideoKind, type PlaybackReport, type SpecialVideoKind } from "./playback.js";
 import { isValidLyricTimingCorrection, lyricPositionForVideo, type LyricTimingCorrection } from "./lyric-timing.js";
 import { MixCache, type CompleteMix } from "./mix-cache.js";
@@ -19,7 +20,7 @@ import {
   type PreservedLanguage,
 } from "./preferences.js";
 import { GEMINI_API_KEY_STORAGE_KEY, readGeminiApiKey, saveGeminiApiKey } from "./gemini-settings.js";
-import { resolveYouTubeSong, type ResolvedSong } from "./song-resolver.js";
+import { identifySong, type SongIdentity } from "./song-resolver.js";
 import { needsJapaneseReadings } from "../../src/pronunciation/japanese-readings.js";
 
 type WorkerMessage = {
@@ -102,6 +103,7 @@ const lyricTimingGapStatus = element<HTMLParagraphElement>("lyric-timing-gap-sta
 const singleModeButton = element<HTMLButtonElement>("single-mode");
 const mixFirstButton = element<HTMLButtonElement>("mix-first-mode");
 const mixReplayButton = element<HTMLButtonElement>("mix-replay-mode");
+const aiMatchRejectButton = element<HTMLButtonElement>("ai-match-reject");
 const titleElement = element<HTMLHeadingElement>("transcript-title");
 const sourceSelect = element<HTMLSelectElement>("source-tab");
 const sourceRefreshButton = element<HTMLButtonElement>("refresh-source-tabs");
@@ -120,8 +122,11 @@ let geminiKeyReadGeneration = 0;
 let geminiKeySaving = false;
 let geminiSettingsReady = false;
 let singleLookupController: AbortController | null = null;
-let resolvedSong: ResolvedSong | null = null;
-const songResolutionCache = new Map<string, ResolvedSong | null>();
+let resolvedTrack: { title: string; artists: string[]; source: "youtube-credit" | "ai" } | null = null;
+const songResolutionCache = new Map<string, SongIdentity | null>();
+const youtubeCreditCache = new Map<string, YouTubeMusicCredit | null>();
+const AI_REJECTED_STORAGE_KEY = "aiRejectedVideoIds";
+let aiRejectedVideoIds: string[] = [];
 type PlaybackTab = { tabId: number; title: string; appId: PlaybackReport["appId"] };
 let selectedSourceTabId: number | null = null;
 let sourceListGeneration = 0;
@@ -931,6 +936,35 @@ function persistLyricTimingCorrections(): void {
   });
 }
 
+async function initializeAiRejections(): Promise<void> {
+  try {
+    const storage = chromeApi?.storage?.local;
+    if (!storage) throw new Error("storage.local unavailable");
+    const stored = (await storage.get(AI_REJECTED_STORAGE_KEY))[AI_REJECTED_STORAGE_KEY];
+    if (!Array.isArray(stored)) {
+      aiRejectedVideoIds = [];
+      return;
+    }
+    aiRejectedVideoIds = stored
+      .filter((item): item is string => typeof item === "string" && /^[A-Za-z0-9_-]{11}$/u.test(item))
+      .slice(-200);
+  } catch {
+    aiRejectedVideoIds = [];
+  }
+}
+
+function persistAiRejections(): void {
+  try {
+    const storage = chromeApi?.storage?.local;
+    if (!storage) throw new Error("storage.local unavailable");
+    void Promise.resolve(storage.set({ [AI_REJECTED_STORAGE_KEY]: aiRejectedVideoIds })).catch(() => {
+      setAiLookupStatus("已在本頁停用，但本機儲存失敗，重新開啟後不會保留。");
+    });
+  } catch {
+    setAiLookupStatus("已在本頁停用，但本機儲存失敗，重新開啟後不會保留。");
+  }
+}
+
 function timingAnchorFromSelection(): { videoMs: number; lyricMs: number } | null {
   const report = playbackReport;
   const index = Number(lyricTimingLine.value);
@@ -1101,7 +1135,8 @@ function clearSelectedTrack(message: string): void {
   singleLookupController?.abort();
   singleLookupController = null;
   clearJapaneseReadingCache();
-  resolvedSong = null;
+  resolvedTrack = null;
+  aiMatchRejectButton.hidden = true;
   setAiLookupStatus("");
   lyricsLookupError = "";
   specialVideo = null;
@@ -1235,7 +1270,7 @@ if (chromeApi) {
 function displayPlaybackSource(report: PlaybackReport): void {
   const source = report.appId === "youtube" ? "YouTube" : report.appId === "youtube-music" ? "YouTube Music" : "Spotify Web";
   const state = report.state === "playing" ? "播放中" : report.state === "paused" ? "已暫停" : "已停止";
-  const track = singalongMode === "single" && resolvedSong ? resolvedSong : report;
+  const track = singalongMode === "single" && resolvedTrack ? resolvedTrack : report;
   titleElement.textContent = track.title || "正在尋找歌詞";
   playbackSourceText.textContent = `${source} · ${track.title} · ${track.artists.join("、") || "尚無歌手資料"} · ${state}`;
 }
@@ -1306,62 +1341,120 @@ async function lookupSingleLyrics(report: PlaybackReport, operationGeneration: n
   let trackDurationMs = report.durationMs;
   let artistIsVerified = report.appId !== "youtube" || report.artistVerified === true || report.segmentStartMs !== undefined;
   renderLines();
+  aiMatchRejectButton.hidden = true;
   try {
-    if (requestKey && report.appId === "youtube" && report.segmentStartMs === undefined && report.durationMs > 0) {
-      const rawTitle = report.rawTitle ?? report.title;
-      const cacheKey = JSON.stringify([report.mediaId, rawTitle, report.durationMs]);
-      let song: ResolvedSong | null;
-      try {
-        if (songResolutionCache.has(cacheKey)) {
-          song = songResolutionCache.get(cacheKey) ?? null;
-        } else {
-          setAiLookupStatus("正在使用你自己的 Gemini 額度解析影片標題，並向 Apple 曲庫比對…");
-          song = await resolveYouTubeSong({ rawTitle, durationMs: report.durationMs }, requestKey, { signal: controller.signal });
+    const lyricsFetcher: typeof fetch = (input, init) => fetch(input, { ...init, signal: controller.signal });
+    let selection: { record: LrclibRecord; lyrics: SyncedLyrics; recordCount: number; timelineCount: number } | null = null;
+    let exactCandidatesCount = 0;
+    let failuresCount = 0;
+
+    if (candidateArtists.length && artistIsVerified) {
+      const { recordsByArtist: resultsByArtist, failures } = await searchLyricsForArtists(trackTitle, candidateArtists, lyricsFetcher);
+      if (!isCurrent()) return;
+      if (failures.length) {
+        lyricsQueryStatus.textContent = `部分歌詞查詢失敗（${failures.length} 次）：${failures[0].artist} — ${failures[0].message} 已保留成功結果。`;
+        lyricsQueryStatus.hidden = false;
+        failuresCount = failures.length;
+      }
+      const exact = exactSyncedCandidatesForArtists(resultsByArtist, trackTitle, candidateArtists);
+      exactCandidatesCount = exact.length;
+      selection = await selectAutomaticLyrics(exact, candidateArtists, trackDurationMs);
+      if (!isCurrent()) return;
+    }
+
+    if (!selection && report.appId === "youtube" && report.segmentStartMs === undefined && report.durationMs > 0) {
+      let credit: YouTubeMusicCredit | null = null;
+      if (youtubeCreditCache.has(report.mediaId)) {
+        credit = youtubeCreditCache.get(report.mediaId) ?? null;
+      } else {
+        try {
+          credit = await fetchYouTubeMusicCredit(report.mediaId, lyricsFetcher);
           if (!isCurrent()) return;
-          if (songResolutionCache.size >= 50) songResolutionCache.delete(songResolutionCache.keys().next().value!);
-          songResolutionCache.set(cacheKey, song);
+          if (youtubeCreditCache.size >= 50) youtubeCreditCache.delete(youtubeCreditCache.keys().next().value!);
+          youtubeCreditCache.set(report.mediaId, credit);
+        } catch {
+          if (!isCurrent()) return;
         }
+      }
+      if (credit) {
+        const { candidates, failures } = await searchLyricsForIdentity({ titles: [credit.title], artists: [credit.artist] }, report.durationMs, lyricsFetcher);
         if (!isCurrent()) return;
-        if (song) {
-          resolvedSong = song;
-          trackTitle = song.title;
-          candidateArtists = song.artists.slice(0, 3);
-          trackDurationMs = song.durationMs;
-          artistIsVerified = true;
+        if (failures.length) {
+          lyricsQueryStatus.textContent = `部分歌詞查詢失敗（${failures.length} 次）：${failures[0].artist} — ${failures[0].message} 已保留成功結果。`;
+          lyricsQueryStatus.hidden = false;
+          failuresCount = failures.length;
+        }
+        exactCandidatesCount = candidates.length;
+        selection = await selectAutomaticLyrics(candidates, [credit.artist], report.durationMs);
+        if (!isCurrent()) return;
+        if (selection) {
+          resolvedTrack = { title: selection.record.trackName, artists: [selection.record.artistName], source: "youtube-credit" };
           displayPlaybackSource(report);
-          setAiLookupStatus("AI 曲目已經 Apple 曲庫比對；同步歌詞另由 LRCLIB 查詢。");
-        } else {
-          setAiLookupStatus("AI 未能確認單一曲目；已改用基本流程，不套用未確認的歌曲。");
         }
-      } catch (error) {
-        if (!isCurrent()) return;
-        setAiLookupStatus(`${error instanceof Error ? error.message : "AI 曲目解析失敗。"} 已改用基本流程。`);
       }
     }
-    if (!candidateArtists.length) {
-      lyricsStatus.textContent = "播放資訊沒有歌手，無法安全比對同步歌詞。";
-      lyricsLookupPending = false;
-      setCaptionActionsVisible(true);
-      setStatus("已取得曲名，但沒有可驗證的歌手資訊。", "idle");
-      return;
+
+    const canAttemptAi =
+      !selection &&
+      Boolean(requestKey) &&
+      report.appId === "youtube" &&
+      report.segmentStartMs === undefined &&
+      report.durationMs > 0;
+
+    if (canAttemptAi) {
+      if (aiRejectedVideoIds.includes(report.mediaId)) {
+        aiMatchRejectButton.textContent = "恢復 AI 比對";
+        aiMatchRejectButton.hidden = false;
+        setAiLookupStatus("你已停用這支影片的 AI 比對。");
+      } else {
+        const rawTitle = report.rawTitle ?? report.title;
+        const channel = report.artistVerified ? "" : (report.artists[0] ?? "");
+        const cacheKey = JSON.stringify([report.mediaId, rawTitle, report.durationMs]);
+        let identity: SongIdentity | null = null;
+        let identityError = false;
+        try {
+          if (songResolutionCache.has(cacheKey)) {
+            identity = songResolutionCache.get(cacheKey) ?? null;
+          } else {
+            setAiLookupStatus("LRCLIB 沒有同名歌詞；正在用你自己的 Gemini 額度（含 Google 搜尋）查詢正式曲名…");
+            identity = await identifySong({ rawTitle, channel, durationMs: report.durationMs }, requestKey, { signal: controller.signal });
+            if (!isCurrent()) return;
+            if (songResolutionCache.size >= 50) songResolutionCache.delete(songResolutionCache.keys().next().value!);
+            songResolutionCache.set(cacheKey, identity);
+          }
+        } catch (error) {
+          if (!isCurrent()) return;
+          identityError = true;
+          const message = error instanceof Error ? error.message : "AI 曲目解析失敗。";
+          setAiLookupStatus(`${message} 未套用 AI 結果。`);
+        }
+        if (!isCurrent()) return;
+
+        if (identity) {
+          const { candidates, failures } = await searchLyricsForIdentity(identity, report.durationMs, lyricsFetcher);
+          if (!isCurrent()) return;
+          if (failures.length) {
+            lyricsQueryStatus.textContent = `部分歌詞查詢失敗（${failures.length} 次）：${failures[0].artist} — ${failures[0].message} 已保留成功結果。`;
+            lyricsQueryStatus.hidden = false;
+            failuresCount = failures.length;
+          }
+          exactCandidatesCount = candidates.length;
+          const aiSelection = await selectAutomaticLyrics(candidates, identity.artists, report.durationMs);
+          if (!isCurrent()) return;
+          if (aiSelection) {
+            selection = aiSelection;
+            resolvedTrack = { title: selection.record.trackName, artists: [selection.record.artistName], source: "ai" };
+            displayPlaybackSource(report);
+            setAiLookupStatus(`AI 經 Google 搜尋將這支影片對應為「${selection.record.trackName}」— ${selection.record.artistName}（LRCLIB ${selection.record.id}）；若不是這首，請按「不是這首」。`);
+          } else {
+            setAiLookupStatus(`AI 查到正式曲名「${identity.titles.join("／")}」，但 LRCLIB 沒有片長相符的同步歌詞。`);
+          }
+        } else if (!identityError) {
+          setAiLookupStatus("AI 未能確認這支影片對應的單一正式曲目；未套用歌詞。");
+        }
+      }
     }
-    if (!artistIsVerified) {
-      lyricsStatus.textContent = "YouTube 沒有可驗證的歌手資料；不會猜測或顯示不確定的歌詞。";
-      lyricsLookupPending = false;
-      setCaptionActionsVisible(true);
-      setStatus("缺少可驗證的歌手資訊，未套用歌詞。", "idle");
-      return;
-    }
-    const lyricsFetcher: typeof fetch = (input, init) => fetch(input, { ...init, signal: controller.signal });
-    const { recordsByArtist: resultsByArtist, failures } = await searchLyricsForArtists(trackTitle, candidateArtists, lyricsFetcher);
-    if (!isCurrent()) return;
-    if (failures.length) {
-      lyricsQueryStatus.textContent = `部分歌詞查詢失敗（${failures.length} 次）：${failures[0].artist} — ${failures[0].message} 已保留成功結果。`;
-      lyricsQueryStatus.hidden = false;
-    }
-    const exact = exactSyncedCandidatesForArtists(resultsByArtist, trackTitle, candidateArtists);
-    const selection = await selectAutomaticLyrics(exact, candidateArtists, trackDurationMs);
-    if (!isCurrent()) return;
+
     if (!selection) {
       selectedLyrics = null;
       lyricsMode = false;
@@ -1369,12 +1462,24 @@ async function lookupSingleLyrics(report: PlaybackReport, operationGeneration: n
       lyricsLookupPending = false;
       setCaptionActionsVisible(true);
       renderLines();
-      lyricsStatus.textContent = exact.length > 0
+
+      if (!candidateArtists.length) {
+        lyricsStatus.textContent = "播放資訊沒有歌手，無法安全比對同步歌詞。";
+        setStatus("已取得曲名，但沒有可驗證的歌手資訊。", "idle");
+        return;
+      }
+      if (!artistIsVerified) {
+        lyricsStatus.textContent = "YouTube 沒有可驗證的歌手資料；不會猜測或顯示不確定的歌詞。";
+        setStatus("缺少可驗證的歌手資訊，未套用歌詞。", "idle");
+        return;
+      }
+      lyricsStatus.textContent = exactCandidatesCount > 0
         ? "相符資料沒有有效時間戳；未顯示不同步的歌詞。"
         : "沒有找到曲名與歌手相符的同步歌詞。";
-      setStatus(failures.length ? "部分查詢失敗；目前未取得可用同步歌詞，可按「重新偵測」再查。" : `已查詢「${trackTitle}」；目前未取得相符同步歌詞。`, failures.length ? "error" : "idle");
+      setStatus(failuresCount ? "部分查詢失敗；目前未取得可用同步歌詞，可按「重新偵測」再查。" : `已查詢「${trackTitle}」；目前未取得相符同步歌詞。`, failuresCount ? "error" : "idle");
       return;
     }
+
     lyricsLookupPending = false;
     setCaptionActionsVisible(false);
     selectedLyrics = selection.lyrics;
@@ -1382,7 +1487,11 @@ async function lookupSingleLyrics(report: PlaybackReport, operationGeneration: n
     lyricsMode = true;
     stopButton.disabled = false;
     const automaticVersion = selection.recordCount > 1;
-    modeBadge.textContent = `${resolvedSong ? "AI 曲目 · " : ""}${automaticVersion ? "自動選版同步歌詞" : "單曲同步歌詞"}`;
+    modeBadge.textContent = `${resolvedTrack?.source === "ai" ? "AI 曲名 · " : resolvedTrack?.source === "youtube-credit" ? "YouTube 曲目資訊 · " : ""}${automaticVersion ? "自動選版同步歌詞" : "單曲同步歌詞"}`;
+    if (resolvedTrack?.source === "ai") {
+      aiMatchRejectButton.textContent = "不是這首";
+      aiMatchRejectButton.hidden = false;
+    }
     lyricsStatus.textContent = automaticVersion
       ? `已從 ${selection.recordCount} 筆相符資料、${selection.timelineCount} 種時間軸自動選版（LRCLIB ${selection.record.id}）；優先比對片長，再比對歌手。MV 片頭可能造成時間差。`
       : `已匹配同步歌詞（LRCLIB ${selection.record.id}）；位置跟隨播放分頁。`;
@@ -1707,7 +1816,23 @@ originalToggle.addEventListener("change", () => {
     renderLines();
   }
 });
-void Promise.all([initializeDisplayPreferences(), initializeGeminiKey(), initializeLyricTimingCorrections()]).then(() => {
+aiMatchRejectButton.addEventListener("click", () => {
+  const mediaId = playbackReport?.mediaId;
+  if (!mediaId) return;
+  if (aiMatchRejectButton.textContent === "恢復 AI 比對") {
+    aiRejectedVideoIds = aiRejectedVideoIds.filter((id) => id !== mediaId);
+    persistAiRejections();
+    void startSingleDetection();
+  } else {
+    if (!aiRejectedVideoIds.includes(mediaId)) {
+      aiRejectedVideoIds.push(mediaId);
+      if (aiRejectedVideoIds.length > 200) aiRejectedVideoIds.shift();
+    }
+    persistAiRejections();
+    void startSingleDetection();
+  }
+});
+void Promise.all([initializeDisplayPreferences(), initializeGeminiKey(), initializeLyricTimingCorrections(), initializeAiRejections()]).then(() => {
   void refreshSourceTabs();
   return startSingleDetection();
 });

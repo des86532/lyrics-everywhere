@@ -1,6 +1,6 @@
 import type { SyncedLyrics } from "../../src/domain/types.js";
 import { parseLrcWithHash } from "../../src/lyrics/lrc-core.js";
-import { normalizeTrackName, trackTitleVariants } from "./playback.js";
+import { exactSyncedCandidatesForArtists, normalizeTrackName, trackTitleVariants } from "./playback.js";
 
 export interface LrclibRecord {
   id: number;
@@ -70,6 +70,53 @@ export async function searchLyricsForArtists(
   await Promise.all(Array.from({ length: Math.min(MAX_PARALLEL_SEARCHES, queries.length) }, runLane));
   if (!successfulQueries && failures.length) throw new Error(`所有歌詞查詢均失敗：${failures[0].message}`);
   return { recordsByArtist, failures };
+}
+
+export function durationTolerance(durationMs: number): number {
+  return Math.max(8_000, Math.min(20_000, durationMs * 0.06));
+}
+
+export async function searchLyricsForIdentity(
+  identity: { titles: string[]; artists: string[] },
+  durationMs: number,
+  fetcher: typeof fetch = fetch,
+  retryDelaysMs: readonly number[] = RETRY_DELAYS_MS,
+): Promise<{ candidates: LrclibRecord[]; failures: LyricsSearchFailure[] }> {
+  const seenTitles = new Set<string>();
+  const candidatesById = new Map<number, LrclibRecord>();
+  const failures: LyricsSearchFailure[] = [];
+  let successfulQueries = 0;
+
+  for (const title of identity.titles) {
+    const normalized = normalizeTrackName(title);
+    if (!normalized || seenTitles.has(normalized)) continue;
+    seenTitles.add(normalized);
+
+    try {
+      const result = await searchLyricsForArtists(title, [identity.artists[0]], fetcher, retryDelaysMs);
+      successfulQueries += 1;
+      failures.push(...result.failures);
+      const matched = exactSyncedCandidatesForArtists(result.recordsByArtist, title, identity.artists);
+      for (const record of matched) candidatesById.set(record.id, record);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "LRCLIB 網路查詢失敗。";
+      failures.push({ artist: identity.artists[0], title, message });
+    }
+  }
+
+  if (!successfulQueries && failures.length) {
+    throw new Error(`所有歌詞查詢均失敗：${failures[0].message}`);
+  }
+
+  const tolerance = durationTolerance(durationMs);
+  const candidates = [...candidatesById.values()].filter(
+    (record) =>
+      typeof record.duration === "number" &&
+      Number.isFinite(record.duration) &&
+      Math.abs(record.duration * 1000 - durationMs) <= tolerance,
+  );
+
+  return { candidates, failures };
 }
 
 export async function parseRecordLyrics(record: LrclibRecord, trackKey: string): Promise<SyncedLyrics> {
