@@ -13,7 +13,6 @@ export class KoreanTranscriber implements LanguageTranscriber {
   readonly languages = ["ko", "korean"] as const;
   readonly supportedSystems: readonly PhoneticSystem[] = [
     "chinese",
-    "bopomofo",
     "latin",
   ];
 

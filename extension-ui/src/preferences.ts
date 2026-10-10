@@ -17,7 +17,7 @@ export const DEFAULT_DISPLAY_PREFERENCES: DisplayPreferences = {
   preservedLanguages: ["zh", "en"],
 };
 
-const phoneticSystems: readonly PhoneticSystem[] = ["chinese", "bopomofo", "latin"];
+const phoneticSystems: readonly PhoneticSystem[] = ["chinese", "latin"];
 const languages: readonly PreservedLanguage[] = ["zh", "en", "ja", "ko"];
 
 export async function readDisplayPreferences(storage: DisplayPreferencesStorage): Promise<DisplayPreferences> {

@@ -26,10 +26,10 @@ describe("display preferences", () => {
     const storage = storageWith({ phoneticSystem: "latin", preservedLanguages: ["ko", "xx", "zh", "ko", "ja"] });
     await expect(readDisplayPreferences(storage)).resolves.toEqual({ phoneticSystem: "latin", preservedLanguages: ["zh", "ja", "ko"] });
     await expect(readDisplayPreferences(storageWith({ phoneticSystem: "bopomofo", preservedLanguages: "ko" })))
-      .resolves.toEqual({ phoneticSystem: "bopomofo", preservedLanguages: ["zh", "en"] });
+      .resolves.toEqual({ phoneticSystem: "chinese", preservedLanguages: ["zh", "en"] });
   });
 
-  it.each(["chinese", "bopomofo", "latin"] as const)("persists and reloads the single %s display system", async (phoneticSystem) => {
+  it.each(["chinese", "latin"] as const)("persists and reloads the single %s display system", async (phoneticSystem) => {
     const storage = storageWith();
     const preferences = { phoneticSystem, preservedLanguages: ["ja", "ko"] as const };
     await saveDisplayPreferences(storage, preferences);

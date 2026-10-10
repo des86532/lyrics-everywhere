@@ -49,25 +49,6 @@ const NUCLEUS_TO_ROMAN: Record<string, string> = {
   ㅝ: "wo", ㅞ: "we", ㅟ: "wi", ㅠ: "yu", ㅡ: "eu", ㅢ: "ui", ㅣ: "i",
 };
 
-// 注音聲母對照
-const ONSET_TO_BOPOMOFO: Record<string, string> = {
-  ㄱ: "ㄍ", ㄲ: "ㄍ", ㄴ: "ㄋ", ㄷ: "ㄉ", ㄸ: "ㄉ", ㄹ: "ㄌ", ㅁ: "ㄇ",
-  ㅂ: "ㄅ", ㅃ: "ㄅ", ㅅ: "ㄙ", ㅆ: "ㄙ", ㅇ: "", ㅈ: "ㄗ", ㅉ: "ㄗ",
-  ㅊ: "ㄘ", ㅋ: "ㄎ", ㅌ: "ㄊ", ㅍ: "ㄆ", ㅎ: "ㄏ",
-};
-
-// 注音韻母對照
-const NUCLEUS_TO_BOPOMOFO: Record<string, string> = {
-  ㅏ: "ㄚ", ㅐ: "ㄝ", ㅑ: "ㄧㄚ", ㅒ: "ㄧㄝ", ㅓ: "ㄛ", ㅔ: "ㄝ", ㅕ: "ㄧㄛ",
-  ㅖ: "ㄧㄝ", ㅗ: "ㄛ", ㅘ: "ㄨㄚ", ㅙ: "ㄨㄝ", ㅚ: "ㄨㄝ", ㅛ: "ㄧㄛ", ㅜ: "ㄨ",
-  ㅝ: "ㄨㄛ", ㅞ: "ㄨㄝ", ㅟ: "ㄨㄧ", ㅠ: "ㄧㄨ", ㅡ: "ㄜ", ㅢ: "ㄜㄧ", ㅣ: "ㄧ",
-};
-
-// 收音注音尾符
-const CODA_TO_BOPOMOFO: Record<string, string> = {
-  k: "ㄍ˙", n: "ㄣ", t: "ㄉ˙", l: "ㄌ", m: "ㄇ", p: "ㄅ˙", ng: "ㄥ",
-};
-
 export function synthesizeBlendedSyllable(
   syl: SurfaceSyllable,
   allowedSystems: PhoneticSystem[],
@@ -75,12 +56,11 @@ export function synthesizeBlendedSyllable(
 ): BlendedSyllable {
   const hasChinese = allowedSystems.includes("chinese");
   const hasLatin = allowedSystems.includes("latin");
-  const hasBopomofo = allowedSystems.includes("bopomofo");
 
   const fragments: PronunciationFragment[] = [];
 
-  // 1. 純 Latin 模式 (僅限使用者明確只勾選英文時)
-  if (hasLatin && !hasChinese && !hasBopomofo) {
+  // 1. 純羅馬拼音模式 (僅限使用者明確只勾選羅馬拼音時)
+  if (hasLatin && !hasChinese) {
     const romOnset = ONSET_TO_ROMAN[syl.onset] || "";
     const romNuc = NUCLEUS_TO_ROMAN[syl.nucleus] || "a";
     const romCoda = syl.coda || "";
@@ -102,37 +82,7 @@ export function synthesizeBlendedSyllable(
     };
   }
 
-  // 2. 純 Bopomofo 模式 (僅限使用者明確只勾選注音時)
-  if (hasBopomofo && !hasChinese && !hasLatin) {
-    let bpOnset = ONSET_TO_BOPOMOFO[syl.onset] || "";
-    let bpNuc = NUCLEUS_TO_BOPOMOFO[syl.nucleus] || "ㄚ";
-    const bpCoda = syl.coda ? CODA_TO_BOPOMOFO[syl.coda] || "" : "";
-
-    if (bpNuc.startsWith("ㄧ")) {
-      if (bpOnset === "ㄙ") bpOnset = "ㄒ";
-      else if (bpOnset === "ㄗ") bpOnset = "ㄐ";
-      else if (bpOnset === "ㄘ") bpOnset = "ㄑ";
-    }
-
-    const fullBp = `${bpOnset}${bpNuc}${bpCoda}`;
-    fragments.push({
-      system: "bopomofo",
-      role: "base",
-      text: fullBp,
-      phonemes: [fullBp],
-    });
-    return {
-      sourceText: syl.sourceChar,
-      onset: syl.onset,
-      nucleus: syl.nucleus,
-      coda: syl.coda,
-      fragments,
-      displayText: fullBp,
-      tier: "syllable",
-    };
-  }
-
-  // 3. 包含中文漢字的空耳模式 (預設且最符合大眾跟唱體驗)
+  // 2. 包含中文漢字的空耳模式 (預設且最符合大眾跟唱體驗)
   // A. 優先嘗試收音自然融合單一漢字 (Fused single Hanzi)
   const fusedKey = `${syl.onset}+${syl.nucleus}+${syl.coda || ""}`;
   if (syl.coda && FUSED_CODA_CHINESE[fusedKey]) {
@@ -165,21 +115,12 @@ export function synthesizeBlendedSyllable(
     baseHanzi = EXTENDED_OPEN_SYLLABLE_CHINESE[openKey];
   }
 
-  // 極少數關鍵音節主動嵌入親和符號
-  if (syl.onset === "ㅂ" && syl.nucleus === "ㅕ" && syl.coda === "l" && hasBopomofo) {
-    baseHanzi = "ㄅㄧㄡ"; // 별
-  } else if (syl.onset === "ㅁ" && syl.nucleus === "ㅕ" && hasBopomofo) {
-    baseHanzi = "ㄇㄧㄡ"; // 며
-  }
-
   if (!baseHanzi) {
     if (hasChinese) {
       baseHanzi =
         EXTENDED_OPEN_SYLLABLE_CHINESE[`${syl.onset}+ㅏ`] ||
         EXTENDED_OPEN_SYLLABLE_CHINESE[`ㅇ+${syl.nucleus}`] ||
         "啊";
-    } else if (hasBopomofo) {
-      baseHanzi = `${ONSET_TO_BOPOMOFO[syl.onset] || ""}${NUCLEUS_TO_BOPOMOFO[syl.nucleus] || ""}`;
     } else {
       baseHanzi = `${ONSET_TO_ROMAN[syl.onset] || ""}${NUCLEUS_TO_ROMAN[syl.nucleus] || ""}`;
     }

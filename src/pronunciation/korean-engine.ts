@@ -182,23 +182,23 @@ function codaToStandardKey(jong: string): string | undefined {
 }
 
 // 常用流行歌詞片語詞典
-export const KOREAN_PHRASES: Record<string, { chinese: string; bopomofo: string; romanization: string }> = {
+export const KOREAN_PHRASES: Record<string, { chinese: string; romanization: string }> = {
   ...GRAMMAR_PARTICLES,
-  사랑해: { chinese: "撒浪嘿", bopomofo: "ㄙㄚ ㄌㄤ ㄏㄟ", romanization: "saranghae" },
-  사랑해요: { chinese: "撒浪嘿呦", bopomofo: "ㄙㄚ ㄌㄤ ㄏㄟ ㄧㄛ", romanization: "saranghaeyo" },
-  너를: { chinese: "呢樂", bopomofo: "ㄋㄜ ㄌㄜ˙", romanization: "neoreul" },
-  "보고 싶다": { chinese: "剖勾 喜打", bopomofo: "ㄅㄛ ㄍㄛ ㄒㄧ ㄉㄚ", romanization: "bogo sipda" },
-  보고싶다: { chinese: "剖勾 喜打", bopomofo: "ㄅㄛ ㄍㄛ ㄒㄧ ㄉㄚ", romanization: "bogo sipda" },
-  "보고 싶어": { chinese: "剖勾 喜剖", bopomofo: "ㄅㄛ ㄍㄛ ㄒㄧ ㄆㄛ", romanization: "bogo sipeo" },
-  보고싶어: { chinese: "剖勾 喜剖", bopomofo: "ㄅㄛ ㄍㄛ ㄒㄧ ㄆㄛ", romanization: "bogo sipeo" },
-  오빠: { chinese: "歐巴", bopomofo: "ㄛ ㄅㄚ", romanization: "oppa" },
-  감사합니다: { chinese: "康桑哈米達", bopomofo: "ㄍㄢ ㄙㄚ ㄏㄚ ㄇㄧ ㄉㄚ", romanization: "gamsahamnida" },
-  미안해: { chinese: "米安嘿", bopomofo: "ㄇㄧ ㄢ ㄏㄟ", romanization: "mianhae" },
-  안녕: { chinese: "安妞", bopomofo: "ㄢ ㄋㄩㄥ", romanization: "annyeong" },
-  괜찮아: { chinese: "快差納", bopomofo: "ㄎㄨㄝㄣ ㄘㄚ ㄋㄚ", romanization: "gwaenchana" },
-  가지마: { chinese: "卡基馬", bopomofo: "ㄍㄚ ㄐㄧ ㄇㄚ", romanization: "gajima" },
-  어떻게: { chinese: "歐透給", bopomofo: "ㄛ ㄊㄛ ㄍㄝ", romanization: "eotteoke" },
-  진짜: { chinese: "緊甲", bopomofo: "ㄐㄧㄣ ㄗㄚ", romanization: "jinjja" },
+  사랑해: { chinese: "撒浪嘿", romanization: "saranghae" },
+  사랑해요: { chinese: "撒浪嘿呦", romanization: "saranghaeyo" },
+  너를: { chinese: "呢樂", romanization: "neoreul" },
+  "보고 싶다": { chinese: "剖勾 喜打", romanization: "bogo sipda" },
+  보고싶다: { chinese: "剖勾 喜打", romanization: "bogo sipda" },
+  "보고 싶어": { chinese: "剖勾 喜剖", romanization: "bogo sipeo" },
+  보고싶어: { chinese: "剖勾 喜剖", romanization: "bogo sipeo" },
+  오빠: { chinese: "歐巴", romanization: "oppa" },
+  감사합니다: { chinese: "康桑哈米達", romanization: "gamsahamnida" },
+  미안해: { chinese: "米安嘿", romanization: "mianhae" },
+  안녕: { chinese: "安妞", romanization: "annyeong" },
+  괜찮아: { chinese: "快差納", romanization: "gwaenchana" },
+  가지마: { chinese: "卡基馬", romanization: "gajima" },
+  어떻게: { chinese: "歐透給", romanization: "eotteoke" },
+  진짜: { chinese: "緊甲", romanization: "jinjja" },
 };
 
 const SORTED_KOREAN_KEYS = Object.keys(KOREAN_PHRASES).sort((a, b) => b.length - a.length);
@@ -232,8 +232,7 @@ export function koreanToBlendedHomophone(
       let phraseDisplay = entry.chinese;
 
       if (!allowedSystems.includes("chinese")) {
-        if (allowedSystems.includes("bopomofo")) phraseDisplay = entry.bopomofo;
-        else if (allowedSystems.includes("latin")) phraseDisplay = entry.romanization;
+        if (allowedSystems.includes("latin")) phraseDisplay = entry.romanization;
       } else if (matchedKey === "너를") {
         phraseDisplay = "呢樂";
       }
@@ -302,9 +301,4 @@ export function koreanToBlendedHomophone(
 
   const displayText = displayParts.join("").replace(/\s+/g, " ").trim();
   return { displayText, syllables };
-}
-
-// 既有相容函式
-export function koreanToBopomofo(text: string): { displayText: string; syllables: BlendedSyllable[] } {
-  return koreanToBlendedHomophone(text, ["bopomofo"], "standard");
 }
