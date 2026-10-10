@@ -13,6 +13,7 @@
         <a class="wordmark" href="./" aria-label="耳邊字幕，重新載入側欄">耳邊<span>字幕</span></a>
         <div class="masthead-actions">
           <button id="single-mode" class="button button-quiet" type="button" aria-label="重新偵測播放來源">重新偵測</button>
+          <button id="pin-source" class="button button-quiet" type="button" aria-pressed="false" disabled>固定此分頁</button>
           <button id="stop-capture" class="button button-stop" type="button" disabled>停止</button>
         </div>
       </header>
@@ -85,11 +86,11 @@
         </div>
       </details>
       <details class="disclosure source-details" name="drawer">
-        <summary>播放來源與說明 <span id="source-mode" class="source-mode">跟隨目前分頁</span></summary>
+        <summary>播放來源與說明 <span id="source-mode" class="source-mode">自動跟隨播放頁</span></summary>
         <div class="disclosure-content">
           <label for="source-tab">播放分頁</label>
           <div class="source-row">
-            <select id="source-tab" disabled><option value="auto">跟隨目前作用中的分頁</option></select>
+            <select id="source-tab" disabled><option value="auto">自動：跟隨最近切到的播放頁</option></select>
             <button id="refresh-source-tabs" class="button button-secondary" type="button" aria-label="更新可選播放分頁">更新</button>
           </div>
           <p id="source-selection-status" class="fine-print" role="status" aria-live="polite"></p>
