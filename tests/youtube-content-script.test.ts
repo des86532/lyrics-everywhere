@@ -276,4 +276,17 @@ describe("YouTube chapter playback reports", () => {
     expect(reportForVideoTitle("EXO 엑소 'Tempo' MV")).toMatchObject({ title: "Tempo", artists: ["EXO", "EXO 엑소", "엑소"] });
     expect(reportForVideoTitle("iKON - ‘사랑을 했다(LOVE SCENARIO)’ M/V")).toMatchObject({ artists: ["iKON"] });
   });
+
+  it("accepts a featured credit or visualizer label after a quoted title but not teaser or live tails", () => {
+    expect(reportForVideoTitle("Epik High (에픽하이) 'Screen Time (B-Roll Version)' ft. Hoshi Visualizer")).toMatchObject({
+      title: "Screen Time (B-Roll Version)",
+      artists: ["Epik High", "Epik High (에픽하이)", "에픽하이"],
+      artistVerified: true,
+    });
+    expect(reportForVideoTitle("Artist 'Song' Visualizer")).toMatchObject({ title: "Song", artists: ["Artist"], artistVerified: true });
+    expect(reportForVideoTitle("Artist 'Song' Teaser")).toMatchObject({
+      title: "Artist 'Song' Teaser", artists: ["i-dle"], artistVerified: false,
+    });
+    expect(reportForVideoTitle("Artist 'Song' ft. Guest Live Clip")).toMatchObject({ artists: ["i-dle"], artistVerified: false });
+  });
 });

@@ -55,6 +55,12 @@
     if (appId() === "youtube-music") return text("ytmusic-player-bar .title") || text("ytmusic-player-bar yt-formatted-string.title");
     return text("h1.ytd-watch-metadata") || content("meta[itemprop='name']") || document.title.replace(/ - YouTube$/, "").trim();
   }
+  // Text after a closing quote that still describes the same song recording.
+  function isSongTitleTail(tail) {
+    if (/\b(?:teaser|trailer|preview|highlight|medley|behind|making|practice|reaction|live|cover|remix|acoustic|instrumental|karaoke)\b/i.test(tail)) return false;
+    return /^[\[(]?\s*(?:ft|feat|featuring)\.?\s+\S/i.test(tail) ||
+      /^[\[(]?\s*(?:official\s+)?visuali[sz]er\s*[\])]?$/i.test(tail);
+  }
   function parseExplicitTrackTitle(value) {
     const withoutPrefix = value
       .replace(/^\s*[\[(]\s*(?:official\s+(?:(?:music\s+)?video|audio|mv)|lyric(?:s)?\s+video|performance\s+video|mv|m\/v)\s*[\])]\s*/i, "");
@@ -63,7 +69,8 @@
       .replace(/\s+(?:official\s+(?:(?:music\s+)?video|audio|mv)|lyric(?:s)?\s+video|performance\s+video|mv|m\/v)\s*$/i, "")
       .trim();
     const hasMusicLabel = withoutSuffix !== value.trim();
-    const quoted = withoutSuffix.match(/^(.+?)\s+['"“‘](.+?)['"”’]\s*$/u);
+    const quotedParts = withoutSuffix.match(/^(.+?)\s+['"“‘](.+)['"”’](?:\s+([^'"“”‘’]+?))?\s*$/u);
+    const quoted = quotedParts && (!quotedParts[3] || isSongTitleTail(quotedParts[3].trim())) ? quotedParts : undefined;
     const separated = !quoted && hasMusicLabel ? withoutSuffix.match(/^(.+?)\s+[-–—_]\s+(.+)$/u) : undefined;
     if (!quoted && !separated) return undefined;
     const artist = (quoted?.[1] ?? separated?.[1] ?? "").replace(/\s*[-–—_:]\s*$/u, "").trim();
