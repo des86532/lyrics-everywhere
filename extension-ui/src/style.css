@@ -87,8 +87,6 @@ button, input, select { font: inherit; color: inherit; }
 .lyric-original { margin: 0 0 3px; font-family: var(--lyric-font); font-size: 13px; line-height: 1.45; color: var(--muted); overflow-wrap: anywhere; }
 .lyric-time { margin-left: 7px; color: var(--faint); font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
 
-.timing-gap-status { flex: none; margin: 0; padding: 7px 10px; border-radius: 10px; background: rgb(127 212 193 / 0.1); border: 1px solid rgb(127 212 193 / 0.35); color: var(--mint); font-size: 12px; }
-
 /* Secondary controls and messages */
 .controls { flex: none; display: flex; flex-direction: column; gap: 6px; }
 /* Hide the whole block when every message and button inside it is hidden. */

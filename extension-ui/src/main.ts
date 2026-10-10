@@ -9,7 +9,7 @@ import type { SyncedLyrics } from "../../src/domain/types.js";
 import { searchLyricsForArtists, searchLyricsForIdentity, selectAutomaticLyrics, type LrclibRecord } from "./lyrics.js";
 import { fetchYouTubeMusicCredit, type YouTubeMusicCredit } from "./youtube-music-credit.js";
 import { exactSyncedCandidatesForArtists, lyricWindowStart, LYRICS_WINDOW_SIZE, mixReplayWindow, playbackPositionAt, playbackTrackPositionAt, specialVideoKind, type PlaybackReport, type SpecialVideoKind } from "./playback.js";
-import { isValidLyricTimingCorrection, lyricPositionForVideo, type LyricTimingCorrection } from "./lyric-timing.js";
+import { formatLyricOffset, isValidLyricOffset, lyricPositionForVideo, parseLyricOffset } from "./lyric-timing.js";
 import { MixCache, type CompleteMix } from "./mix-cache.js";
 import {
   DEFAULT_DISPLAY_PREFERENCES,
@@ -94,12 +94,10 @@ const lyricsStatus = element<HTMLParagraphElement>("lyrics-status");
 const japaneseReadingStatus = element<HTMLParagraphElement>("japanese-reading-status");
 const lyricsQueryStatus = element<HTMLParagraphElement>("lyrics-query-status");
 const lyricTimingEditor = element<HTMLDetailsElement>("lyric-timing-editor");
-const lyricTimingLine = element<HTMLSelectElement>("lyric-timing-line");
-const lyricTimingBeforeButton = element<HTMLButtonElement>("lyric-timing-before");
-const lyricTimingAfterButton = element<HTMLButtonElement>("lyric-timing-after");
+const lyricTimingOffsetInput = element<HTMLInputElement>("lyric-timing-offset");
+const lyricTimingApplyButton = element<HTMLButtonElement>("lyric-timing-apply");
 const lyricTimingClearButton = element<HTMLButtonElement>("lyric-timing-clear");
 const lyricTimingFeedback = element<HTMLParagraphElement>("lyric-timing-feedback");
-const lyricTimingGapStatus = element<HTMLParagraphElement>("lyric-timing-gap-status");
 const singleModeButton = element<HTMLButtonElement>("single-mode");
 const mixFirstButton = element<HTMLButtonElement>("mix-first-mode");
 const mixReplayButton = element<HTMLButtonElement>("mix-replay-mode");
@@ -313,7 +311,8 @@ let preferenceWriteQueue: Promise<void> = Promise.resolve();
 const LYRIC_TIMING_STORAGE_KEY = "lyricTimingCorrections";
 const YOUTUBE_MEDIA_ID = /^[A-Za-z0-9_-]{11}$/u;
 const CONTENT_HASH = /^[a-f0-9]{64}$/u;
-let lyricTimingCorrections: Record<string, LyricTimingCorrection> = {};
+let lyricTimingOffsets: Record<string, number> = {};
+let lyricTimingInputKey: string | null = null;
 let lyricTimingWriteQueue: Promise<void> = Promise.resolve();
 function latestPlaybackReport(): PlaybackReport | null {
   return playbackReport;
@@ -874,43 +873,18 @@ function updateLyricTimingControls(): void {
   const shown = Boolean(selectedLyrics && lyricsMode && singalongMode === "single" &&
     playbackReport?.appId === "youtube" && playbackReport.segmentStartMs === undefined);
   lyricTimingEditor.hidden = !shown;
-  if (!shown) {
-    lyricTimingGapStatus.hidden = true;
-    return;
-  }
-  const report = playbackReport;
-  const validReport = Boolean(report && YOUTUBE_MEDIA_ID.test(report.mediaId) &&
-    report.appId === "youtube" && report.segmentStartMs === undefined &&
-    report.state !== "stopped" && Date.now() - report.capturedAtMs <= 3000);
-  const lineIndex = Number(lyricTimingLine.value);
-  const line = Number.isInteger(lineIndex) ? selectedLyrics?.lines[lineIndex] : undefined;
-  const validLine = Boolean(line && line.startMs !== undefined && Number.isFinite(line.startMs) &&
-    line.startMs >= 0 && /\S/u.test(line.text));
+  if (!shown) return;
   const key = selectedTimingKey();
-  const correction = key ? lyricTimingCorrections[key] : undefined;
-  const ready = validReport && validLine && key !== null;
-  lyricTimingBeforeButton.disabled = !ready;
-  lyricTimingAfterButton.disabled = !ready || !correction;
-  lyricTimingClearButton.disabled = !key || !correction;
-  if (!validReport) setLyricTimingFeedback("需要同一支 YouTube 影片在 3 秒內的有效播放資訊，才可記錄時間。");
-  else if (!validLine) setLyricTimingFeedback("請選擇一行具有起始時間的歌詞。");
-  else if (!key) setLyricTimingFeedback("影片或歌詞版本識別資料無效，不能保存校時。");
-  else if (!lyricTimingFeedback.textContent) setLyricTimingFeedback(correction ? "已載入這支影片與此歌詞版本的校時。" : "");
-}
-
-function populateLyricTimingLines(): void {
-  const selectedValue = lyricTimingLine.value;
-  lyricTimingLine.replaceChildren();
-  selectedLyrics?.lines.forEach((line, index) => {
-    if (line.startMs === undefined || !Number.isFinite(line.startMs) || line.startMs < 0 || !/\S/u.test(line.text)) return;
-    const option = new Option(`${formatTime(line.startMs)} · ${line.text}`, String(index));
-    lyricTimingLine.add(option);
-  });
-  if (Array.from(lyricTimingLine.options).some((option) => option.value === selectedValue)) {
-    lyricTimingLine.value = selectedValue;
+  const offsetMs = key ? lyricTimingOffsets[key] : undefined;
+  if (key !== lyricTimingInputKey) { // prefill only when video/lyrics change; never clobber typing on clock ticks
+    lyricTimingInputKey = key;
+    lyricTimingOffsetInput.value = offsetMs !== undefined ? formatLyricOffset(offsetMs) : "";
   }
-  lyricTimingLine.disabled = lyricTimingLine.options.length === 0;
-  updateLyricTimingControls();
+  lyricTimingOffsetInput.disabled = !key;
+  lyricTimingApplyButton.disabled = !key;
+  lyricTimingClearButton.disabled = !key || offsetMs === undefined;
+  if (!key) setLyricTimingFeedback("影片或歌詞版本識別資料無效，不能保存校時。");
+  else if (!lyricTimingFeedback.textContent && offsetMs !== undefined) setLyricTimingFeedback(`已載入這支影片與此歌詞版本的校時：${formatLyricOffset(offsetMs)}。`);
 }
 
 async function initializeLyricTimingCorrections(): Promise<void> {
@@ -919,16 +893,16 @@ async function initializeLyricTimingCorrections(): Promise<void> {
     if (!storage) throw new Error("storage.local unavailable");
     const stored = (await storage.get(LYRIC_TIMING_STORAGE_KEY))[LYRIC_TIMING_STORAGE_KEY];
     if (!stored || typeof stored !== "object" || Array.isArray(stored)) {
-      lyricTimingCorrections = {};
+      lyricTimingOffsets = {};
       return;
     }
-    const valid: Record<string, LyricTimingCorrection> = {};
+    const valid: Record<string, number> = {};
     for (const [key, value] of Object.entries(stored)) {
-      if (/^[A-Za-z0-9_-]{11}:[a-f0-9]{64}$/u.test(key) && isValidLyricTimingCorrection(value)) valid[key] = value;
+      if (/^[A-Za-z0-9_-]{11}:[a-f0-9]{64}$/u.test(key) && isValidLyricOffset(value)) valid[key] = value;
     }
-    lyricTimingCorrections = valid;
+    lyricTimingOffsets = valid;
   } catch {
-    lyricTimingCorrections = {};
+    lyricTimingOffsets = {};
     setLyricTimingFeedback("無法讀取校時資料；本次操作仍可使用，但不會載入已保存校正。");
   }
 }
@@ -937,7 +911,7 @@ function persistLyricTimingCorrections(): void {
   lyricTimingWriteQueue = lyricTimingWriteQueue.then(async () => {
     const storage = chromeApi?.storage?.local;
     if (!storage) throw new Error("storage.local unavailable");
-    const snapshot = { ...lyricTimingCorrections };
+    const snapshot = { ...lyricTimingOffsets };
     await storage.set({ [LYRIC_TIMING_STORAGE_KEY]: snapshot });
     setLyricTimingFeedback("校時已保存於此瀏覽器。");
   }).catch(() => {
@@ -974,56 +948,27 @@ function persistAiRejections(): void {
   }
 }
 
-function timingAnchorFromSelection(): { videoMs: number; lyricMs: number } | null {
-  const report = playbackReport;
-  const index = Number(lyricTimingLine.value);
-  const line = Number.isInteger(index) ? selectedLyrics?.lines[index] : undefined;
-  if (!report || report.appId !== "youtube" || report.segmentStartMs !== undefined ||
-      report.state === "stopped" || Date.now() - report.capturedAtMs > 3000 ||
-      !YOUTUBE_MEDIA_ID.test(report.mediaId) || !line ||
-      line.startMs === undefined || !Number.isFinite(line.startMs) || line.startMs < 0 || !/\S/u.test(line.text)) return null;
-  return { videoMs: playbackTrackPositionAt(report, Date.now()), lyricMs: line.startMs };
-}
-
-function recordLyricTimingBefore(): void {
+function applyLyricTimingOffset(): void {
   const key = selectedTimingKey();
-  const anchor = timingAnchorFromSelection();
-  if (!key || !anchor) {
-    setLyricTimingFeedback("沒有同一支影片的有效播放資訊或有效歌詞行；未記錄。");
+  if (!key) {
+    setLyricTimingFeedback("影片或歌詞版本識別資料無效，不能保存校時。");
     updateLyricTimingControls();
     return;
   }
-  const existing = lyricTimingCorrections[key];
-  const candidate: LyricTimingCorrection = { before: anchor, ...(existing?.after ? { after: existing.after } : {}) };
-  let message = `已記錄空白前對齊：影片 ${formatTime(anchor.videoMs)}，歌詞 ${formatTime(anchor.lyricMs)}。`;
-  if (!isValidLyricTimingCorrection(candidate)) {
-    lyricTimingCorrections[key] = { before: anchor };
-    message += " 原空白後錨點已失效，請重新記錄。";
+  const offsetMs = parseLyricOffset(lyricTimingOffsetInput.value);
+  if (offsetMs === null) {
+    setLyricTimingFeedback("請輸入秒數或 m:ss，例如 5、-2.5、1:05.3（上限 60 分鐘）；原校時保持不變。");
+    return;
+  }
+  if (offsetMs === 0) {
+    delete lyricTimingOffsets[key];
+    lyricTimingOffsetInput.value = "";
+    setLyricTimingFeedback("偏移為 0，已清除這支影片的校時。");
   } else {
-    lyricTimingCorrections[key] = candidate;
+    lyricTimingOffsets[key] = offsetMs;
+    lyricTimingOffsetInput.value = formatLyricOffset(offsetMs);
+    setLyricTimingFeedback(`已套用：所有歌詞時間 ${formatLyricOffset(offsetMs)}。`);
   }
-  setLyricTimingFeedback(message);
-  updateLyricTimingControls();
-  renderSelectedLyrics();
-  persistLyricTimingCorrections();
-}
-
-function recordLyricTimingAfter(): void {
-  const key = selectedTimingKey();
-  const anchor = timingAnchorFromSelection();
-  const existing = key ? lyricTimingCorrections[key] : undefined;
-  if (!key || !anchor || !existing) {
-    setLyricTimingFeedback("請先記錄空白前對齊，並確認播放資訊與所選歌詞有效。");
-    updateLyricTimingControls();
-    return;
-  }
-  const candidate: LyricTimingCorrection = { before: existing.before, after: anchor };
-  if (!isValidLyricTimingCorrection(candidate)) {
-    setLyricTimingFeedback("空白後錨點順序不正確或沒有形成空白增量；原校時保持不變。");
-    return;
-  }
-  lyricTimingCorrections[key] = candidate;
-  setLyricTimingFeedback(`已記錄空白後對齊：影片 ${formatTime(anchor.videoMs)}，歌詞 ${formatTime(anchor.lyricMs)}。`);
   updateLyricTimingControls();
   renderSelectedLyrics();
   persistLyricTimingCorrections();
@@ -1032,7 +977,8 @@ function recordLyricTimingAfter(): void {
 function clearLyricTimingCorrection(): void {
   const key = selectedTimingKey();
   if (!key) return;
-  delete lyricTimingCorrections[key];
+  delete lyricTimingOffsets[key];
+  lyricTimingOffsetInput.value = "";
   setLyricTimingFeedback("已清除這支影片的校時；其他影片與歌詞版本未變更。");
   updateLyricTimingControls();
   renderSelectedLyrics();
@@ -1065,42 +1011,37 @@ function appendSelectedLyric(text: string, state: LyricLineState = "plain"): voi
 function renderSelectedLyrics(): void {
   selectedLyricsElement.replaceChildren();
   if (!selectedLyrics) {
-    lyricTimingGapStatus.hidden = true;
     updateLyricTimingControls();
     return;
   }
   if (!playbackReport || Date.now() - playbackReport.capturedAtMs > 3000) {
-    lyricTimingGapStatus.hidden = true;
     for (const lyric of selectedLyrics.lines) appendSelectedLyric(lyric.text);
     updateLyricTimingControls();
     return;
   }
   const videoPosition = trackLyricsPositionAt(playbackReport, Date.now());
   const correctionKey = selectedTimingKey();
-  const mapped = lyricPositionForVideo(videoPosition, correctionKey ? lyricTimingCorrections[correctionKey] : undefined);
-  const position = mapped.positionMs;
-  lyricTimingGapStatus.hidden = !mapped.inGap;
-  const matchingIndex = mapped.inGap ? -1 : selectedLyrics.lines.findIndex((line) => line.startMs !== undefined && line.endMs !== undefined && position >= line.startMs && position < line.endMs);
-  const nextIndex = mapped.inGap ? -1 : selectedLyrics.lines.findIndex((line) => line.startMs !== undefined && line.startMs > position);
+  const position = lyricPositionForVideo(videoPosition, correctionKey ? lyricTimingOffsets[correctionKey] : undefined);
+  const matchingIndex = selectedLyrics.lines.findIndex((line) => line.startMs !== undefined && line.endMs !== undefined && position >= line.startMs && position < line.endMs);
+  const nextIndex = selectedLyrics.lines.findIndex((line) => line.startMs !== undefined && line.startMs > position);
   const activeIndex = matchingIndex >= 0 ? matchingIndex : nextIndex >= 0 ? nextIndex : selectedLyrics.lines.length - 1;
-  const focusState: LyricLineState = mapped.inGap ? "upcoming" : matchingIndex >= 0 ? "active" : nextIndex >= 0 ? "next" : "past";
-  const beforeIndex = mapped.inGap
-    ? selectedLyrics.lines.reduce((last, line, index) => line.startMs !== undefined && line.startMs <= (correctionKey ? lyricTimingCorrections[correctionKey]?.before.lyricMs ?? 0 : 0) ? index : last, 0)
-    : activeIndex;
-  const firstIndex = lyricWindowStart(selectedLyrics.lines, beforeIndex);
+  const focusState: LyricLineState = matchingIndex >= 0 ? "active" : nextIndex >= 0 ? "next" : "past";
+  const firstIndex = lyricWindowStart(selectedLyrics.lines, activeIndex);
   let displayed = 0;
   for (let index = firstIndex; index < selectedLyrics.lines.length && displayed < LYRICS_WINDOW_SIZE; index += 1) {
     const lyric = selectedLyrics.lines[index];
     if (!/\S/u.test(lyric.text)) continue;
-    appendSelectedLyric(lyric.text, mapped.inGap ? (index <= beforeIndex ? "past" : "upcoming")
-      : index === activeIndex ? focusState : index < activeIndex ? "past" : "upcoming");
+    appendSelectedLyric(lyric.text, index === activeIndex ? focusState : index < activeIndex ? "past" : "upcoming");
     displayed += 1;
   }
   updateLyricTimingControls();
 }
-lyricTimingLine.addEventListener("change", updateLyricTimingControls);
-lyricTimingBeforeButton.addEventListener("click", recordLyricTimingBefore);
-lyricTimingAfterButton.addEventListener("click", recordLyricTimingAfter);
+lyricTimingApplyButton.addEventListener("click", applyLyricTimingOffset);
+lyricTimingOffsetInput.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || event.isComposing) return;
+  event.preventDefault();
+  applyLyricTimingOffset();
+});
 lyricTimingClearButton.addEventListener("click", clearLyricTimingCorrection);
 
 
@@ -1156,10 +1097,9 @@ function clearSelectedTrack(message: string): void {
   selectedLyrics = null;
   lyricsMode = false;
   lyricsLookupPending = false;
-  lyricTimingLine.replaceChildren();
-  lyricTimingLine.disabled = true;
+  lyricTimingOffsetInput.value = "";
+  lyricTimingInputKey = null;
   setLyricTimingFeedback("");
-  lyricTimingGapStatus.hidden = true;
   selectedLyricsElement.replaceChildren();
   modeBadge.textContent = "等待播放來源";
   lyricsStatus.textContent = message;
@@ -1471,7 +1411,7 @@ async function lookupSingleLyrics(report: PlaybackReport, operationGeneration: n
     if (!selection) {
       selectedLyrics = null;
       lyricsMode = false;
-      populateLyricTimingLines();
+      updateLyricTimingControls();
       lyricsLookupPending = false;
       setCaptionActionsVisible(true);
       renderLines();
@@ -1496,7 +1436,7 @@ async function lookupSingleLyrics(report: PlaybackReport, operationGeneration: n
     lyricsLookupPending = false;
     setCaptionActionsVisible(false);
     selectedLyrics = selection.lyrics;
-    populateLyricTimingLines();
+    updateLyricTimingControls();
     lyricsMode = true;
     stopButton.disabled = false;
     const automaticVersion = selection.recordCount > 1;
@@ -1534,8 +1474,7 @@ async function startSingleDetection(): Promise<void> {
   lockedTabId = null;
   playbackReport = null;
   setLyricTimingFeedback("");
-  lyricTimingGapStatus.hidden = true;
-  populateLyricTimingLines();
+  updateLyricTimingControls();
   setCaptionActionsVisible(false);
   titleElement.textContent = "正在尋找歌詞";
   renderLines();
