@@ -107,6 +107,7 @@ const aiMatchRejectButton = element<HTMLButtonElement>("ai-match-reject");
 const titleElement = element<HTMLHeadingElement>("transcript-title");
 const sourceSelect = element<HTMLSelectElement>("source-tab");
 const sourceRefreshButton = element<HTMLButtonElement>("refresh-source-tabs");
+const pinSourceButton = element<HTMLButtonElement>("pin-source");
 const sourceSelectionStatus = element<HTMLParagraphElement>("source-selection-status");
 const sourceModeText = element<HTMLSpanElement>("source-mode");
 const captionHelp = element<HTMLParagraphElement>("caption-help");
@@ -155,22 +156,28 @@ function updateSourceControls(): void {
   const busy = captionStarting || singalongMode === "mix-first" || singalongMode === "mix-replay";
   sourceSelect.disabled = busy;
   sourceRefreshButton.disabled = busy;
-  const label = busy ? "字幕工作已鎖定來源" : selectedSourceTabId === null ? "跟隨目前分頁"
+  const label = busy ? "字幕工作已鎖定來源" : selectedSourceTabId === null ? "自動跟隨播放頁"
     : sourceSelect.selectedOptions[0]?.disabled ? "指定來源不可用" : `已鎖定分頁 ${selectedSourceTabId}`;
   if (sourceModeText.textContent !== label) sourceModeText.textContent = label;
+  const pinned = selectedSourceTabId !== null;
+  pinSourceButton.disabled = busy || (!pinned && (lockedTabId === null || playbackReport === null || singalongMode !== "single"));
+  pinSourceButton.setAttribute("aria-pressed", String(pinned));
+  const pinText = pinned ? "解除固定" : "固定此分頁";
+  if (pinSourceButton.textContent !== pinText) pinSourceButton.textContent = pinText;
+  pinSourceButton.title = pinned ? `目前固定分頁 ${selectedSourceTabId}；按下改回自動跟隨播放頁` : "固定目前歌詞來源分頁；切換其他分頁不會換歌詞";
 }
 
-async function refreshSourceTabs(): Promise<void> {
-  if (!chromeApi) return;
+async function refreshSourceTabs(): Promise<PlaybackTab[] | null> {
+  if (!chromeApi) return null;
   const requestGeneration = ++sourceListGeneration;
   sourceRefreshButton.disabled = true;
   try {
     const response = await chromeApi.runtime.sendMessage({ type: "list-playback-tabs" }) as {
       ok?: boolean; tabs?: PlaybackTab[]; error?: string;
     } | undefined;
-    if (requestGeneration !== sourceListGeneration) return;
+    if (requestGeneration !== sourceListGeneration) return null;
     if (!response?.ok || !Array.isArray(response.tabs)) throw new Error(response?.error ?? "無法取得播放分頁列表。");
-    sourceSelect.replaceChildren(new Option("跟隨目前作用中的分頁", "auto"));
+    sourceSelect.replaceChildren(new Option("自動：跟隨最近切到的播放頁", "auto"));
     for (const tab of response.tabs) sourceSelect.add(new Option(`${tab.title} · 分頁 ${tab.tabId}`, String(tab.tabId)));
     const sourceMissing = selectedSourceTabId !== null && !response.tabs.some((tab) => tab.tabId === selectedSourceTabId);
     if (sourceMissing) {
@@ -180,12 +187,14 @@ async function refreshSourceTabs(): Promise<void> {
     }
     sourceSelect.value = selectedSourceTabId === null ? "auto" : String(selectedSourceTabId);
     sourceSelectionStatus.textContent = selectedSourceTabId === null
-      ? "選擇一個分頁即可固定歌詞來源；切換其他分頁不會換歌詞。"
+      ? "自動模式：切到 YouTube、YouTube Music 或 Spotify 播放頁才會換歌詞；切到其他網頁會保留目前歌詞。按上方「固定此分頁」可完全鎖定。"
       : sourceMissing ? "指定分頁已關閉或離開支援網站；不會自動換到其他分頁，請另選來源。"
         : "已指定播放分頁；該分頁內換歌仍會重新匹配。要換來源請重新選擇。";
+    return response.tabs;
   } catch (error) {
-    if (requestGeneration !== sourceListGeneration) return;
+    if (requestGeneration !== sourceListGeneration) return null;
     sourceSelectionStatus.textContent = error instanceof Error ? error.message : "無法列出播放分頁。";
+    return null;
   } finally {
     if (requestGeneration === sourceListGeneration) updateSourceControls();
   }
@@ -1243,9 +1252,13 @@ function receivePlaybackMessage(message: ExtensionMessage): void {
 if (chromeApi) {
   chromeApi.runtime.onMessage.addListener(receivePlaybackMessage);
   chromeApi.tabs.onActivated.addListener(({ tabId }) => {
-    void refreshSourceTabs();
-    if (selectedSourceTabId !== null || captionStarting || singalongMode !== "single" || tabId === lockedTabId) return;
-    void startSingleDetection();
+    void (async () => {
+      const tabs = await refreshSourceTabs();
+      if (selectedSourceTabId !== null || captionStarting || singalongMode !== "single" || tabId === lockedTabId) return;
+      // Auto mode follows playback pages only; ordinary pages keep the current lyrics.
+      if (!tabs?.some((tab) => tab.tabId === tabId)) return;
+      await startSingleDetection();
+    })();
   });
   chromeApi.tabs.onRemoved.addListener((tabId) => {
     void refreshSourceTabs();
@@ -1571,6 +1584,19 @@ sourceSelect.addEventListener("change", () => {
   updateCaptionProgress();
   updateSourceControls();
   void startSingleDetection();
+});
+pinSourceButton.addEventListener("click", () => {
+  if (selectedSourceTabId !== null) {
+    selectedSourceTabId = null;
+    void refreshSourceTabs();
+    updateSourceControls();
+    if (singalongMode !== "single" || playbackReport === null) void startSingleDetection();
+    return;
+  }
+  if (lockedTabId === null || playbackReport === null || singalongMode !== "single") return;
+  selectedSourceTabId = lockedTabId;
+  void refreshSourceTabs();
+  updateSourceControls();
 });
 
 loadButton.addEventListener("click", () => {
