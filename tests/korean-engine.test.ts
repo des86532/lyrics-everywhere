@@ -3,10 +3,10 @@ import {
   applyKoreanPhonology,
   composeHangul,
   decomposeHangulChar,
-  koreanToBopomofo,
+  koreanToBlendedHomophone,
 } from "../src/pronunciation/korean-engine.js";
 
-describe("Korean Phonology & Bopomofo Engine", () => {
+describe("Korean Phonology & Homophone Engine", () => {
   it("decomposes and recomposes Hangul syllables correctly", () => {
     const dec = decomposeHangulChar("한");
     expect(dec.cho).toBe("ㅎ");
@@ -37,9 +37,8 @@ describe("Korean Phonology & Bopomofo Engine", () => {
     expect(res[2]?.jong).toBe("ㅁ");
   });
 
-  it("transcribes Korean lyrics to singable Bopomofo", () => {
-    const { displayText } = koreanToBopomofo("사랑해 너를");
-    expect(displayText).toContain("ㄙㄚ");
-    expect(displayText).toContain("ㄌㄤ");
+  it("transcribes Korean lyrics to romanization when only latin is allowed", () => {
+    const { displayText } = koreanToBlendedHomophone("사랑해", ["latin"], "standard");
+    expect(displayText).toBe("saranghae");
   });
 });

@@ -31,8 +31,8 @@ export interface SyncedLyrics {
   contentHash: string;
 }
 
-// 專為中文使用者收斂的三種基礎拼音工具系統
-export type PhoneticSystem = "chinese" | "bopomofo" | "latin";
+// 專為中文使用者收斂的兩種基礎拼音工具系統
+export type PhoneticSystem = "chinese" | "latin";
 
 export type PronunciationStyle = "standard" | "singable";
 

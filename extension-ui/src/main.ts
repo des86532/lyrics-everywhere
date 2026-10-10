@@ -747,7 +747,7 @@ async function initializeDisplayPreferences(): Promise<void> {
 
 function saveCurrentDisplayPreferences(): void {
   displayPreferences = {
-    phoneticSystem: systemSelect.value === "bopomofo" || systemSelect.value === "latin" ? systemSelect.value : "chinese",
+    phoneticSystem: systemSelect.value === "latin" ? "latin" : "chinese",
     preservedLanguages: preferenceInputs
       .filter((input) => input.checked)
       .map((input) => input.value as PreservedLanguage),

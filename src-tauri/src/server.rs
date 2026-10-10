@@ -604,11 +604,11 @@ fn validate_profile(profile: &Profile) -> bool {
             .iter()
             .all(|v| ["zh", "en", "ja", "ko"].contains(&v.as_str()))
         && !profile.allowed_systems.is_empty()
-        && profile.allowed_systems.len() <= 3
+        && profile.allowed_systems.len() <= 2
         && profile
             .allowed_systems
             .iter()
-            .all(|v| ["chinese", "bopomofo", "latin"].contains(&v.as_str()))
+            .all(|v| ["chinese", "latin"].contains(&v.as_str()))
         && ["auto", "browser", "spotify-macos", "windows-smtc"]
             .contains(&profile.source_preference.as_str())
         && source_supported(&profile.source_preference)
@@ -621,10 +621,23 @@ fn source_supported(source: &str) -> bool {
         _ => false,
     }
 }
+/// 注音顯示已移除：舊設定移除 bopomofo，若沒有其他系統則改用中文。
+fn retire_bopomofo(profile: &mut Profile) {
+    if profile.allowed_systems.iter().any(|v| v == "bopomofo") {
+        profile.allowed_systems.retain(|v| v != "bopomofo");
+        if profile.allowed_systems.is_empty() {
+            profile.allowed_systems.push("chinese".into());
+        }
+    }
+}
 fn load_profile(path: &PathBuf) -> Profile {
     std::fs::read(path)
         .ok()
         .and_then(|bytes| serde_json::from_slice::<VersionedProfile>(&bytes).ok())
+        .map(|mut stored| {
+            retire_bopomofo(&mut stored.profile);
+            stored
+        })
         .filter(|stored| stored.version == PROFILE_VERSION && validate_profile(&stored.profile))
         .map(|stored| stored.profile)
         .unwrap_or_else(default_profile)
@@ -814,6 +827,9 @@ mod tests {
         invalid = profile.clone();
         invalid.source_preference = "not-a-source".into();
         assert!(!validate_profile(&invalid));
+        invalid = profile.clone();
+        invalid.allowed_systems = vec!["bopomofo".into()];
+        assert!(!validate_profile(&invalid));
         if !cfg!(target_os = "windows") {
             invalid = profile;
             invalid.source_preference = "windows-smtc".into();
@@ -839,6 +855,10 @@ mod tests {
         assert_eq!(loaded.passthrough_languages, vec!["en", "ko"]);
         assert_eq!(loaded.allowed_systems, vec!["latin"]);
         assert_eq!(loaded.source_preference, "browser");
+        std::fs::write(&path,r#"{"version":1,"profile":{"targetLocale":"ja","passthroughLanguages":[],"allowedSystems":["bopomofo"],"sourcePreference":"auto"}}"#).unwrap();
+        let migrated = load_profile(&path);
+        assert_eq!(migrated.allowed_systems, vec!["chinese"]);
+        assert_eq!(migrated.target_locale, "ja");
         std::fs::write(&path,r#"{"version":999,"profile":{"targetLocale":"ja","passthroughLanguages":[],"allowedSystems":["chinese"],"sourcePreference":"auto"}}"#).unwrap();
         assert_eq!(load_profile(&path).target_locale, "zh-TW");
         std::fs::write(&path, "broken").unwrap();

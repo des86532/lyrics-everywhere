@@ -106,16 +106,6 @@ describe("TranscriberRegistry & Multi-language Blended Homophones", () => {
     expect(result.displayText).toBe("撒浪嘿 愛西貼路");
   });
 
-  it("supports pure Bopomofo when only Bopomofo is allowed", () => {
-    const res = registry.transcribe({
-      text: "오빠",
-      allowedSystems: ["bopomofo"],
-    });
-
-    expect(res.displayText).toContain("ㄛ");
-    expect(res.displayText).toContain("ㄅ");
-  });
-
   it("passes through unknown text and punctuation safely", () => {
     const res = registry.transcribe({
       text: "Hello World 123!",
