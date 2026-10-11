@@ -32,6 +32,16 @@ export function searchLyricsByKeyword(query: string, fetcher: typeof fetch = fet
   return fetchLrclibSearch(new URLSearchParams({ q: query.trim() }), fetcher);
 }
 
+// Returns null when LRCLIB has no record with this id.
+export async function fetchLrclibRecord(id: number, fetcher: typeof fetch = fetch): Promise<LrclibRecord | null> {
+  const response = await fetcher(`https://lrclib.net/api/get/${id}`, { method: "GET", mode: "cors", headers: { Accept: "application/json" } });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new LyricsHttpError(response.status);
+  const record: unknown = await response.json();
+  if (!isLrclibRecord(record)) throw new Error("LRCLIB 回傳格式無法辨識。");
+  return record;
+}
+
 export type LyricsSearchFailure = { artist: string; title: string; message: string };
 
 // LRCLIB answers bursts of parallel searches with intermittent 503s; two lanes plus retries keep latency low.

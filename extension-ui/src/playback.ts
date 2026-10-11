@@ -129,11 +129,11 @@ const TITLE_QUOTED = /《([^《》]+)》|「([^「」]+)」|『([^『』]+)』|�
 const TITLE_SEPARATOR = /[|｜《》「」『』【】〈〉\[\]()（）"“”:：]|(?:^|\s)['‘]|['’](?=\s|$)|\s(?:[-–—_~～/／x×]|feat(?:uring)?\.?|ft\.)\s/giu;
 const MAX_TITLE_QUERIES = 6;
 
-export function titleSearchQueries(rawTitle: string): string[] {
-  const title = rawTitle.normalize("NFKC");
-  if (VERSION_LABEL.test(title)) return [];
+// De-noised quoted fragments and deduplicated segments of an NFKC-normalized title.
+function titleQueryParts(title: string): { quoted: string[]; segments: string[] } {
   const cleaned = title.replace(TITLE_NOISE, " ");
-  const quoted = [...cleaned.matchAll(TITLE_QUOTED)].map((match) => match.slice(1).find((group) => group !== undefined) ?? "");
+  const quoted = [...cleaned.matchAll(TITLE_QUOTED)]
+    .map((match) => (match.slice(1).find((group) => group !== undefined) ?? "").replace(/\s+/gu, " ").trim());
   const seen = new Set<string>();
   const segments = cleaned.split(TITLE_SEPARATOR)
     .map((segment) => segment.replace(/\s+/gu, " ").trim())
@@ -143,7 +143,22 @@ export function titleSearchQueries(rawTitle: string): string[] {
       seen.add(key);
       return true;
     });
-  const candidates = [segments.join(" "), ...quoted.map((segment) => segment.replace(/\s+/gu, " ").trim()), ...segments];
+  return { quoted, segments };
+}
+
+// One keyword for LRCLIB's AND search page: the quoted song title when present, else the de-noised title.
+export function titleLookupKeyword(rawTitle: string): string {
+  const title = rawTitle.normalize("NFKC");
+  const { quoted, segments } = titleQueryParts(title);
+  const keyword = quoted.find((segment) => normalizeTrackName(segment)) ?? segments.join(" ");
+  return toSimplifiedChinese(keyword || title.trim());
+}
+
+export function titleSearchQueries(rawTitle: string): string[] {
+  const title = rawTitle.normalize("NFKC");
+  if (VERSION_LABEL.test(title)) return [];
+  const { quoted, segments } = titleQueryParts(title);
+  const candidates = [segments.join(" "), ...quoted, ...segments];
   const queries = new Set<string>();
   for (const candidate of candidates) {
     if (!normalizeTrackName(candidate)) continue;
