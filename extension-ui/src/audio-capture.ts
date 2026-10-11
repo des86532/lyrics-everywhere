@@ -17,8 +17,23 @@ export interface CapturePlatform {
   createAudioContext(): AudioContext;
 }
 
+interface ChromePortListener<T> {
+  addListener(callback: (message: T) => void): void;
+  removeListener(callback: (message: T) => void): void;
+}
+
+interface ChromePort {
+  postMessage(message: unknown): void;
+  disconnect(): void;
+  onMessage: ChromePortListener<unknown>;
+  onDisconnect: ChromePortListener<void>;
+}
+
 interface ChromeCaptureApi {
-  runtime: { sendMessage(message: unknown): Promise<unknown> };
+  runtime: {
+    sendMessage(message: unknown): Promise<unknown>;
+    connect?(info: { name: string }): ChromePort;
+  };
   tabCapture?: { getMediaStreamId(options: { targetTabId: number }): Promise<string> };
 }
 
@@ -28,18 +43,56 @@ function createExtensionPlatform(): CapturePlatform {
   if (!chromeApi || !tabCapture || !navigator.mediaDevices?.getUserMedia) {
     throw new Error("此功能需要支援 tabCapture 的桌面 Chrome 或 Edge 擴充功能側欄。");
   }
+  let activePortState: { port: ChromePort; tabId: number; intervalId: number } | null = null;
   return {
     async reserveTabCapture(targetTabId, mode) {
-      const response = await chromeApi.runtime.sendMessage({ type: "reserve-tab-capture", tabId: targetTabId, mode });
-      if (!response || typeof response !== "object" || !("ok" in response) || response.ok !== true) {
-        const message = response && typeof response === "object" && "error" in response && typeof response.error === "string"
-          ? response.error
-          : "無法鎖定 YouTube 分頁擷取。";
-        throw new Error(message);
+      if (!chromeApi.runtime.connect) {
+        throw new Error("擴充功能不支援 Port 連線。");
       }
+      const port = chromeApi.runtime.connect({ name: "tab-capture" });
+      const response = await new Promise<{ ok: boolean; error?: string }>((resolve) => {
+        const handleDisconnect = () => {
+          port.onMessage.removeListener(handleMessage);
+          port.onDisconnect.removeListener(handleDisconnect);
+          resolve({ ok: false, error: "擴充功能背景程式已中斷，請重試。" });
+        };
+        const handleMessage = (msg: unknown) => {
+          if (msg && typeof msg === "object" && "type" in msg && msg.type === "reserve-tab-capture-result") {
+            port.onMessage.removeListener(handleMessage);
+            port.onDisconnect.removeListener(handleDisconnect);
+            const ok = "ok" in msg && msg.ok === true;
+            const error = "error" in msg && typeof msg.error === "string" ? msg.error : undefined;
+            resolve({ ok, error });
+          }
+        };
+        port.onDisconnect.addListener(handleDisconnect);
+        port.onMessage.addListener(handleMessage);
+        port.postMessage({ type: "reserve-tab-capture", tabId: targetTabId, mode });
+      });
+
+      if (!response.ok) {
+        try { port.disconnect(); } catch {}
+        throw new Error(response.error ?? "無法鎖定 YouTube 分頁擷取。");
+      }
+
+      const intervalId = setInterval(() => {
+        try { port.postMessage({ type: "keepalive" }); } catch {}
+      }, 20_000) as unknown as number;
+      const onPortDisconnect = () => {
+        clearInterval(intervalId);
+        if (activePortState?.port === port) {
+          activePortState = null;
+        }
+      };
+      port.onDisconnect.addListener(onPortDisconnect);
+      activePortState = { port, tabId: targetTabId, intervalId };
     },
     async releaseTabCapture(targetTabId) {
-      await chromeApi.runtime.sendMessage({ type: "release-tab-capture", tabId: targetTabId }).catch(() => undefined);
+      if (activePortState && activePortState.tabId === targetTabId) {
+        clearInterval(activePortState.intervalId);
+        try { activePortState.port.disconnect(); } catch {}
+        activePortState = null;
+      }
     },
     async getMediaStreamId(targetTabId) {
       try {

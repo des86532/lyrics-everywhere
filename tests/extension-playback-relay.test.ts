@@ -7,11 +7,45 @@ const serviceWorker = readFileSync(new URL("../browser-extension/service-worker.
 type RelayMessage = { type: string; tabId?: number; report?: Record<string, unknown> };
 type RelaySender = { id?: string; url?: string; tab?: { id?: number } };
 type RelayListener = (message: RelayMessage, sender: RelaySender, sendResponse?: (response: unknown) => void) => boolean | void;
+type ConnectListener = (port: unknown) => void;
+type TabRemoveListener = (tabId: number) => void;
+
+function fakePort(name: string, id = "extension-id") {
+  const messageListeners: ((msg: unknown) => void)[] = [];
+  const disconnectListeners: (() => void)[] = [];
+  const postedMessages: unknown[] = [];
+  return {
+    name,
+    sender: { id },
+    postMessage: (msg: unknown) => postedMessages.push(msg),
+    disconnect: () => {
+      disconnectListeners.forEach((l) => l());
+    },
+    onMessage: {
+      addListener: (l: (msg: unknown) => void) => messageListeners.push(l),
+      removeListener: (l: (msg: unknown) => void) => {
+        const idx = messageListeners.indexOf(l);
+        if (idx >= 0) messageListeners.splice(idx, 1);
+      },
+    },
+    onDisconnect: {
+      addListener: (l: () => void) => disconnectListeners.push(l),
+      removeListener: (l: () => void) => {
+        const idx = disconnectListeners.indexOf(l);
+        if (idx >= 0) disconnectListeners.splice(idx, 1);
+      },
+    },
+    sendToSW: (msg: unknown) => {
+      messageListeners.forEach((l) => l(msg));
+    },
+    postedMessages,
+  };
+}
 
 describe("extension playback relay", () => {
-
   it("accepts same-origin SPA playback changes without trusting a different origin", () => {
     const listeners: RelayListener[] = [];
+    const connectListeners: ConnectListener[] = [];
     const runtimeMessages: RelayMessage[] = [];
     runInNewContext(serviceWorker, {
       URL, Date,
@@ -19,13 +53,22 @@ describe("extension playback relay", () => {
         runtime: {
           id: "extension-id",
           onMessage: { addListener: (listener: RelayListener) => listeners.push(listener) },
+          onConnect: { addListener: (listener: ConnectListener) => connectListeners.push(listener) },
           sendMessage: (message: RelayMessage) => { runtimeMessages.push(message); return Promise.resolve(); },
         },
         action: { onClicked: { addListener: () => undefined } },
         sidePanel: { setPanelBehavior: () => undefined },
-        tabs: { sendMessage: () => Promise.resolve() },
+        tabs: {
+          query: async () => [],
+          sendMessage: () => Promise.resolve(),
+          onRemoved: { addListener: () => undefined },
+        },
       },
     });
+
+    const panelPort = fakePort("side-panel");
+    connectListeners[0]?.(panelPort);
+
     const initialUrl = "https://www.youtube.com/watch?v=abcdefghijk&index=6&themeRefresh=1";
     const report = {
       version: 2, sessionId: "spa", appId: "youtube",
@@ -64,12 +107,14 @@ describe("extension playback relay", () => {
         runtime: {
           id: "extension-id",
           onMessage: { addListener: (listener: RelayListener) => listeners.push(listener) },
+          onConnect: { addListener: () => undefined },
         },
         action: { onClicked: { addListener: () => undefined } },
         sidePanel: { setPanelBehavior: () => undefined },
         tabs: {
           query: async (query: unknown) => { queried.push(query); return openTabs; },
           sendMessage: async () => { reportRequests += 1; },
+          onRemoved: { addListener: () => undefined },
         },
         scripting: { executeScript: async () => { injections += 1; } },
       },
@@ -99,10 +144,14 @@ describe("extension playback relay", () => {
         runtime: {
           id: "extension-id",
           onMessage: { addListener: (listener: RelayListener) => listeners.push(listener) },
+          onConnect: { addListener: () => undefined },
         },
         action: { onClicked: { addListener: () => undefined } },
         sidePanel: { setPanelBehavior: () => undefined },
-        tabs: { query: async () => { throw new Error("tabs unavailable"); } },
+        tabs: {
+          query: async () => { throw new Error("tabs unavailable"); },
+          onRemoved: { addListener: () => undefined },
+        },
       },
     });
     const { promise, resolve } = Promise.withResolvers<unknown>();
@@ -146,6 +195,7 @@ describe("extension playback relay", () => {
         runtime: {
           id: "extension-id",
           onMessage: { addListener: (listener: RelayListener) => workerListeners.push(listener) },
+          onConnect: { addListener: () => undefined },
           sendMessage: () => Promise.resolve(),
         },
         action: { onClicked: { addListener: () => undefined } },
@@ -158,6 +208,7 @@ describe("extension playback relay", () => {
             const keepOpen = listener(message, { id: "extension-id" }, resolve);
             if (keepOpen !== true) resolve(undefined);
           }),
+          onRemoved: { addListener: () => undefined },
         },
         scripting: {
           executeScript: async ({ files, world }: { files: string[]; world: string }) => {
@@ -183,7 +234,6 @@ describe("extension playback relay", () => {
     });
   });
 
-
   it("never injects a playback script into an unsupported origin", async () => {
     const listeners: RelayListener[] = [];
     let injectionCount = 0;
@@ -193,12 +243,14 @@ describe("extension playback relay", () => {
         runtime: {
           id: "extension-id",
           onMessage: { addListener: (listener: RelayListener) => listeners.push(listener) },
+          onConnect: { addListener: () => undefined },
         },
         action: { onClicked: { addListener: () => undefined } },
         sidePanel: { setPanelBehavior: () => undefined },
         tabs: {
           get: async () => ({ url: "https://unrelated.example/watch?v=abcdefghijk" }),
           sendMessage: async () => { throw new Error("Receiving end does not exist."); },
+          onRemoved: { addListener: () => undefined },
         },
         scripting: { executeScript: async () => { injectionCount += 1; } },
       },
@@ -218,12 +270,14 @@ describe("extension playback relay", () => {
         runtime: {
           id: "extension-id",
           onMessage: { addListener: (listener: RelayListener) => listeners.push(listener) },
+          onConnect: { addListener: () => undefined },
         },
         action: { onClicked: { addListener: () => undefined } },
         sidePanel: { setPanelBehavior: () => undefined },
         tabs: {
           get: async () => ({ url: "https://open.spotify.com/" }),
           sendMessage: async () => { throw new Error("Receiving end does not exist."); },
+          onRemoved: { addListener: () => undefined },
         },
         scripting: { executeScript: async () => { throw new Error("Cannot access contents of the page."); } },
       },
@@ -243,10 +297,15 @@ describe("extension playback relay", () => {
         runtime: {
           id: "extension-id",
           onMessage: { addListener: (listener: RelayListener) => listeners.push(listener) },
+          onConnect: { addListener: () => undefined },
           sendMessage: () => { relayed += 1; return Promise.resolve(); },
         },
         action: { onClicked: { addListener: () => undefined } },
-        sidePanel: { setPanelBehavior: () => undefined }, tabs: { sendMessage: () => Promise.resolve() },
+        sidePanel: { setPanelBehavior: () => undefined },
+        tabs: {
+          sendMessage: () => Promise.resolve(),
+          onRemoved: { addListener: () => undefined },
+        },
       },
       fetch: () => { relayed += 1; return Promise.resolve(); },
     };
@@ -263,16 +322,22 @@ describe("extension playback relay", () => {
 
   it("allows only a paused 1x YouTube watch tab at the start and releases the global capture lock", () => {
     const listeners: RelayListener[] = [];
+    const connectListeners: ConnectListener[] = [];
     const context = {
       URL, Date,
       chrome: {
         runtime: {
           id: "extension-id",
           onMessage: { addListener: (listener: RelayListener) => listeners.push(listener) },
+          onConnect: { addListener: (listener: ConnectListener) => connectListeners.push(listener) },
           sendMessage: () => Promise.resolve(),
         },
         action: { onClicked: { addListener: () => undefined } },
-        sidePanel: { setPanelBehavior: () => undefined }, tabs: { sendMessage: () => Promise.resolve() },
+        sidePanel: { setPanelBehavior: () => undefined },
+        tabs: {
+          sendMessage: () => Promise.resolve(),
+          onRemoved: { addListener: () => undefined },
+        },
       },
     };
     runInNewContext(serviceWorker, context);
@@ -282,31 +347,46 @@ describe("extension playback relay", () => {
       durationMs: 60000, playbackRate: 1, capturedAtMs: Date.now(),
     };
     listeners[0]?.({ type: "playback-report", report }, { url: report.pageUrl, tab: { id: 5 } });
-    const responses: unknown[] = [];
-    const respond = (response: unknown) => responses.push(response);
-    listeners[0]?.({ type: "reserve-tab-capture", tabId: 5, mode: "mix-first" }, { id: "extension-id" }, respond);
-    listeners[0]?.({ type: "reserve-tab-capture", tabId: 5, mode: "mix-first" }, { id: "extension-id" }, respond);
-    expect(responses).toEqual([{ ok: true }, expect.objectContaining({ ok: false })]);
-    listeners[0]?.({ type: "release-tab-capture", tabId: 5 }, { id: "extension-id" }, respond);
+
+    const port1 = fakePort("tab-capture");
+    connectListeners[0]?.(port1);
+
+    port1.sendToSW({ type: "reserve-tab-capture", tabId: 5, mode: "mix-first" });
+    const port2 = fakePort("tab-capture");
+    connectListeners[0]?.(port2);
+    port2.sendToSW({ type: "reserve-tab-capture", tabId: 5, mode: "mix-first" });
+
+    expect(port1.postedMessages).toEqual([{ type: "reserve-tab-capture-result", ok: true }]);
+    expect(port2.postedMessages).toEqual([expect.objectContaining({ type: "reserve-tab-capture-result", ok: false })]);
+
+    port1.disconnect();
+
     const chapterAtVideoStart = { ...report, segmentStartMs: 30000, mediaDurationMs: 60000 };
     listeners[0]?.({ type: "playback-report", report: chapterAtVideoStart }, { url: report.pageUrl, tab: { id: 5 } });
-    listeners[0]?.({ type: "reserve-tab-capture", tabId: 5, mode: "mix-first" }, { id: "extension-id" }, respond);
-    expect(responses.at(-1)).toMatchObject({ ok: false });
+    const port3 = fakePort("tab-capture");
+    connectListeners[0]?.(port3);
+    port3.sendToSW({ type: "reserve-tab-capture", tabId: 5, mode: "mix-first" });
+    expect(port3.postedMessages.at(-1)).toMatchObject({ type: "reserve-tab-capture-result", ok: false });
   });
 
   it("rejects audio-guess reservations and enforces the mix-first start gate", () => {
     const listeners: RelayListener[] = [];
+    const connectListeners: ConnectListener[] = [];
     runInNewContext(serviceWorker, {
       URL, Date,
       chrome: {
         runtime: {
           id: "extension-id",
           onMessage: { addListener: (listener: RelayListener) => listeners.push(listener) },
+          onConnect: { addListener: (listener: ConnectListener) => connectListeners.push(listener) },
           sendMessage: () => Promise.resolve(),
         },
         action: { onClicked: { addListener: () => undefined } },
         sidePanel: { setPanelBehavior: () => undefined },
-        tabs: { sendMessage: () => Promise.resolve() },
+        tabs: {
+          sendMessage: () => Promise.resolve(),
+          onRemoved: { addListener: () => undefined },
+        },
       },
     });
     const report = {
@@ -314,11 +394,174 @@ describe("extension playback relay", () => {
       mediaId: "abcdefghijk", title: "Song", artists: ["Singer"], state: "playing",
       positionMs: 27000, durationMs: 60000, playbackRate: 1.25, capturedAtMs: Date.now(),
     };
-    const responses: unknown[] = [];
-    const respond = (response: unknown) => responses.push(response);
     listeners[0]?.({ type: "playback-report", report }, { url: report.pageUrl, tab: { id: 5 } });
-    listeners[0]?.({ type: "reserve-tab-capture", tabId: 5, mode: "audio-guess" }, { id: "extension-id" }, respond);
-    listeners[0]?.({ type: "reserve-tab-capture", tabId: 5, mode: "mix-first" }, { id: "extension-id" }, respond);
-    expect(responses).toEqual([expect.objectContaining({ ok: false })]);
+
+    const port1 = fakePort("tab-capture");
+    connectListeners[0]?.(port1);
+    port1.sendToSW({ type: "reserve-tab-capture", tabId: 5, mode: "audio-guess" });
+    port1.sendToSW({ type: "reserve-tab-capture", tabId: 5, mode: "mix-first" });
+    expect(port1.postedMessages).toEqual([
+      expect.objectContaining({ type: "reserve-tab-capture-result", ok: false }),
+      expect.objectContaining({ type: "reserve-tab-capture-result", ok: false }),
+    ]);
+  });
+
+  it("releases the capture lock when the owning port disconnects", () => {
+    const listeners: RelayListener[] = [];
+    const connectListeners: ConnectListener[] = [];
+    runInNewContext(serviceWorker, {
+      URL, Date,
+      chrome: {
+        runtime: {
+          id: "extension-id",
+          onMessage: { addListener: (listener: RelayListener) => listeners.push(listener) },
+          onConnect: { addListener: (listener: ConnectListener) => connectListeners.push(listener) },
+          sendMessage: () => Promise.resolve(),
+        },
+        action: { onClicked: { addListener: () => undefined } },
+        sidePanel: { setPanelBehavior: () => undefined },
+        tabs: {
+          sendMessage: () => Promise.resolve(),
+          onRemoved: { addListener: () => undefined },
+        },
+      },
+    });
+    const report = {
+      version: 2, sessionId: "s1", appId: "youtube", pageUrl: "https://www.youtube.com/watch?v=abcdefghijk",
+      mediaId: "abcdefghijk", title: "Mix", artists: ["Channel"], state: "paused", positionMs: 0,
+      durationMs: 60000, playbackRate: 1, capturedAtMs: Date.now(),
+    };
+    listeners[0]?.({ type: "playback-report", report }, { url: report.pageUrl, tab: { id: 5 } });
+
+    const port1 = fakePort("tab-capture");
+    connectListeners[0]?.(port1);
+    port1.sendToSW({ type: "reserve-tab-capture", tabId: 5, mode: "mix-first" });
+    expect(port1.postedMessages).toEqual([{ type: "reserve-tab-capture-result", ok: true }]);
+
+    port1.disconnect();
+
+    const port2 = fakePort("tab-capture");
+    connectListeners[0]?.(port2);
+    port2.sendToSW({ type: "reserve-tab-capture", tabId: 5, mode: "mix-first" });
+    expect(port2.postedMessages).toEqual([{ type: "reserve-tab-capture-result", ok: true }]);
+  });
+
+  it("releases the capture lock when the locked tab is removed", () => {
+    const listeners: RelayListener[] = [];
+    const connectListeners: ConnectListener[] = [];
+    const tabRemoveListeners: TabRemoveListener[] = [];
+    runInNewContext(serviceWorker, {
+      URL, Date,
+      chrome: {
+        runtime: {
+          id: "extension-id",
+          onMessage: { addListener: (listener: RelayListener) => listeners.push(listener) },
+          onConnect: { addListener: (listener: ConnectListener) => connectListeners.push(listener) },
+          sendMessage: () => Promise.resolve(),
+        },
+        action: { onClicked: { addListener: () => undefined } },
+        sidePanel: { setPanelBehavior: () => undefined },
+        tabs: {
+          sendMessage: () => Promise.resolve(),
+          onRemoved: { addListener: (listener: TabRemoveListener) => tabRemoveListeners.push(listener) },
+        },
+      },
+    });
+    const report = {
+      version: 2, sessionId: "s1", appId: "youtube", pageUrl: "https://www.youtube.com/watch?v=abcdefghijk",
+      mediaId: "abcdefghijk", title: "Mix", artists: ["Channel"], state: "paused", positionMs: 0,
+      durationMs: 60000, playbackRate: 1, capturedAtMs: Date.now(),
+    };
+    listeners[0]?.({ type: "playback-report", report }, { url: report.pageUrl, tab: { id: 5 } });
+
+    const port1 = fakePort("tab-capture");
+    connectListeners[0]?.(port1);
+    port1.sendToSW({ type: "reserve-tab-capture", tabId: 5, mode: "mix-first" });
+    expect(port1.postedMessages).toEqual([{ type: "reserve-tab-capture-result", ok: true }]);
+
+    // Tab removed
+    tabRemoveListeners[0]?.(5);
+
+    // Another report and reserve now succeeds
+    listeners[0]?.({ type: "playback-report", report }, { url: report.pageUrl, tab: { id: 6 } });
+    const port2 = fakePort("tab-capture");
+    connectListeners[0]?.(port2);
+    port2.sendToSW({ type: "reserve-tab-capture", tabId: 6, mode: "mix-first" });
+    expect(port2.postedMessages).toEqual([{ type: "reserve-tab-capture-result", ok: true }]);
+  });
+
+  it("suppresses relay when no side panel is connected and notifies playback tabs when side panel connects", async () => {
+    const listeners: RelayListener[] = [];
+    const connectListeners: ConnectListener[] = [];
+    const runtimeMessages: RelayMessage[] = [];
+    const sentTabMessages: Array<{ tabId: number; message: unknown }> = [];
+    let onTabMessage: ((msg: { tabId: number; message: unknown }) => void) | undefined;
+    const nextTabMessage = () => {
+      const { promise, resolve } = Promise.withResolvers<{ tabId: number; message: unknown }>();
+      onTabMessage = resolve;
+      return promise;
+    };
+    runInNewContext(serviceWorker, {
+      URL, Date,
+      chrome: {
+        runtime: {
+          id: "extension-id",
+          onMessage: { addListener: (listener: RelayListener) => listeners.push(listener) },
+          onConnect: { addListener: (listener: ConnectListener) => connectListeners.push(listener) },
+          sendMessage: (message: RelayMessage) => { runtimeMessages.push(message); return Promise.resolve(); },
+        },
+        action: { onClicked: { addListener: () => undefined } },
+        sidePanel: { setPanelBehavior: () => undefined },
+        tabs: {
+          query: async () => [{ id: 5, url: "https://www.youtube.com/watch?v=abcdefghijk" }],
+          sendMessage: (tabId: number, message: unknown) => {
+            sentTabMessages.push({ tabId, message });
+            onTabMessage?.({ tabId, message });
+            return Promise.resolve();
+          },
+          onRemoved: { addListener: () => undefined },
+        },
+      },
+    });
+
+    const report = {
+      version: 2, sessionId: "s1", appId: "youtube", pageUrl: "https://www.youtube.com/watch?v=abcdefghijk",
+      mediaId: "abcdefghijk", title: "Song", artists: ["Artist"], state: "playing", positionMs: 1000,
+      durationMs: 60000, playbackRate: 1, capturedAtMs: Date.now(),
+    };
+
+    // No side panel port: report should NOT relay playback-state and response has listening: false
+    let reportResponse: { listening?: boolean } | undefined;
+    listeners[0]?.({ type: "playback-report", report }, { url: report.pageUrl, tab: { id: 5 } }, (res: unknown) => {
+      reportResponse = res as { listening?: boolean };
+    });
+    expect(runtimeMessages).toHaveLength(0);
+    expect(reportResponse?.listening).toBe(false);
+
+    // Connect side panel
+    const sidePanelPort = fakePort("side-panel");
+    const listeningBroadcast = nextTabMessage();
+    connectListeners[0]?.(sidePanelPort);
+    await listeningBroadcast;
+    expect(sentTabMessages).toContainEqual({
+      tabId: 5,
+      message: { type: "playback-listening", listening: true },
+    });
+
+    // Now send report again: should relay and response has listening: true
+    listeners[0]?.({ type: "playback-report", report }, { url: report.pageUrl, tab: { id: 5 } }, (res: unknown) => {
+      reportResponse = res as { listening?: boolean };
+    });
+    expect(runtimeMessages).toHaveLength(1);
+    expect(reportResponse?.listening).toBe(true);
+
+    // Disconnect side panel: should broadcast listening: false
+    const unlisteningBroadcast = nextTabMessage();
+    sidePanelPort.disconnect();
+    await unlisteningBroadcast;
+    expect(sentTabMessages).toContainEqual({
+      tabId: 5,
+      message: { type: "playback-listening", listening: false },
+    });
   });
 });

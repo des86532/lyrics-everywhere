@@ -38,6 +38,7 @@ type ExtensionApi = {
     id: string;
     sendMessage(message: unknown): Promise<unknown>;
     onMessage: { addListener(listener: (message: ExtensionMessage) => void): void };
+    connect?(info: { name: string }): { onDisconnect: { addListener(listener: () => void): void } };
   };
   tabs: {
     query(query: { active: true; lastFocusedWindow: true }): Promise<Array<{ id?: number }>>;
@@ -1221,6 +1222,13 @@ function receivePlaybackMessage(message: ExtensionMessage): void {
 
 if (chromeApi) {
   chromeApi.runtime.onMessage.addListener(receivePlaybackMessage);
+  function connectPanelPort(): void {
+    const port = chromeApi?.runtime.connect?.({ name: "side-panel" });
+    port?.onDisconnect.addListener(() => {
+      setTimeout(connectPanelPort, 1000);
+    });
+  }
+  connectPanelPort();
   chromeApi.tabs.onActivated.addListener(({ tabId }) => {
     void (async () => {
       const tabs = await refreshSourceTabs();
