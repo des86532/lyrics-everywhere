@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { exactSyncedCandidates, exactSyncedCandidatesForArtists, mixReplayWindow, playbackPositionAt, playbackTrackPositionAt, specialVideoKind, titleMentionedCandidates, titleSearchQueries, type PlaybackReport } from "../extension-ui/src/playback.js";
+import { exactSyncedCandidates, exactSyncedCandidatesForArtists, mixReplayWindow, playbackPositionAt, playbackTrackPositionAt, specialVideoKind, titleLookupKeyword, titleMentionedCandidates, titleSearchQueries, type PlaybackReport } from "../extension-ui/src/playback.js";
 
 const report = (values: Partial<PlaybackReport> = {}): PlaybackReport => ({
   version: 2,
@@ -164,5 +164,11 @@ describe("video title keyword matching", () => {
   it("matches whole Latin words only and refuses titles naming two different songs", () => {
     expect(titleMentionedCandidates([rec(1, "Song", "Rap")], "Rapper Song Story")).toEqual([]);
     expect(titleMentionedCandidates([rec(1, "甲乙", "Singer A"), rec(2, "丙丁", "Singer A")], "Singer A《甲乙》與《丙丁》")).toEqual([]);
+  });
+
+  it("picks one keyword for the LRCLIB search page, even for live videos", () => {
+    expect(titleLookupKeyword(CAPPER)).toBe("无人区玫瑰");
+    expect(titleLookupKeyword("Taylor Swift - Love Story")).toBe("Taylor Swift Love Story");
+    expect(titleLookupKeyword("Capper《無人區玫瑰》Live版")).toBe("无人区玫瑰");
   });
 });

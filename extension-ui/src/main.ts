@@ -6,9 +6,10 @@ import { TranscriberRegistry } from "../../src/pronunciation/transcriber-registr
 import type { PhoneticSystem } from "../../src/domain/types.js";
 import { TranscriptLines, type TranscriptLine, type TimestampedChunk } from "./transcript-lines.js";
 import type { SyncedLyrics } from "../../src/domain/types.js";
-import { searchLyricsByVideoTitle, searchLyricsForArtists, searchLyricsForIdentity, selectAutomaticLyrics, type LrclibRecord } from "./lyrics.js";
+import { durationTolerance, fetchLrclibRecord, parseRecordLyrics, searchLyricsByVideoTitle, searchLyricsForArtists, searchLyricsForIdentity, selectAutomaticLyrics, type LrclibRecord } from "./lyrics.js";
 import { fetchYouTubeMusicCredit, type YouTubeMusicCredit } from "./youtube-music-credit.js";
-import { exactSyncedCandidatesForArtists, lyricWindowStart, LYRICS_WINDOW_SIZE, mixReplayWindow, playbackPositionAt, playbackTrackPositionAt, specialVideoKind, type PlaybackReport, type SpecialVideoKind } from "./playback.js";
+import { exactSyncedCandidatesForArtists, lyricWindowStart, LYRICS_WINDOW_SIZE, mixReplayWindow, playbackPositionAt, playbackTrackPositionAt, specialVideoKind, titleLookupKeyword, type PlaybackReport, type SpecialVideoKind } from "./playback.js";
+import { MANUAL_LYRICS_STORAGE_KEY, MAX_MANUAL_SELECTIONS, manualLyricsPrompt, parseManualLyricsInput, parseManualSelections } from "./manual-lyrics.js";
 import { formatLyricOffset, isValidLyricOffset, lyricPositionForVideo, parseLyricOffset } from "./lyric-timing.js";
 import { MixCache, type CompleteMix } from "./mix-cache.js";
 import {
@@ -19,8 +20,6 @@ import {
   type DisplayPreferencesStorage,
   type PreservedLanguage,
 } from "./preferences.js";
-import { GEMINI_API_KEY_STORAGE_KEY, readGeminiApiKey, saveGeminiApiKey } from "./gemini-settings.js";
-import { identifySong, type SongIdentity } from "./song-resolver.js";
 import { needsJapaneseReadings } from "../../src/pronunciation/japanese-readings.js";
 
 type WorkerMessage = {
@@ -46,8 +45,7 @@ type ExtensionApi = {
     onRemoved: { addListener(listener: (tabId: number) => void): void };
   };
   storage?: {
-    local?: DisplayPreferencesStorage & { setAccessLevel?(options: { accessLevel: "TRUSTED_CONTEXTS" }): Promise<void> };
-    onChanged?: { addListener(listener: (changes: Record<string, { newValue?: unknown }>, areaName: string) => void): void };
+    local?: DisplayPreferencesStorage & { remove?(keys: string): Promise<void> };
   };
 };
 type DisplayLine = TranscriptLine & { pronunciation: string };
@@ -110,19 +108,20 @@ const sourceSelectionStatus = element<HTMLParagraphElement>("source-selection-st
 const sourceModeText = element<HTMLSpanElement>("source-mode");
 const captionHelp = element<HTMLParagraphElement>("caption-help");
 const captionProgress = element<HTMLParagraphElement>("caption-progress");
-const geminiKeyInput = element<HTMLInputElement>("gemini-key");
-const saveGeminiKeyButton = element<HTMLButtonElement>("save-gemini-key");
-const removeGeminiKeyButton = element<HTMLButtonElement>("remove-gemini-key");
-const geminiKeyStatus = element<HTMLParagraphElement>("gemini-key-status");
-const geminiMode = element<HTMLSpanElement>("gemini-mode");
+const manualLyricsMode = element<HTMLSpanElement>("manual-lyrics-mode");
+const openLrclibSearchLink = element<HTMLAnchorElement>("open-lrclib-search");
+const copyAiPromptButton = element<HTMLButtonElement>("copy-ai-prompt");
+const manualLyricsInput = element<HTMLTextAreaElement>("manual-lyrics-input");
+const applyManualLyricsButton = element<HTMLButtonElement>("apply-manual-lyrics");
+const clearManualLyricsButton = element<HTMLButtonElement>("clear-manual-lyrics");
+const manualLyricsStatus = element<HTMLParagraphElement>("manual-lyrics-status");
 const aiLookupStatus = element<HTMLParagraphElement>("ai-lookup-status");
-let geminiApiKey = "";
-let geminiKeyReadGeneration = 0;
-let geminiKeySaving = false;
-let geminiSettingsReady = false;
+let manualSelections = new Map<string, number>();
+const manualRecordCache = new Map<number, LrclibRecord>();
+let manualApplying = false;
+let manualSearchTitle: string | null = null;
 let singleLookupController: AbortController | null = null;
-let resolvedTrack: { title: string; artists: string[]; source: "youtube-credit" | "title-match" | "ai" } | null = null;
-const songResolutionCache = new Map<string, SongIdentity | null>();
+let resolvedTrack: { title: string; artists: string[]; source: "youtube-credit" | "title-match" | "manual" } | null = null;
 const youtubeCreditCache = new Map<string, YouTubeMusicCredit | null>();
 const AI_REJECTED_STORAGE_KEY = "aiRejectedVideoIds";
 let aiRejectedVideoIds: string[] = [];
@@ -234,6 +233,7 @@ function updateCaptionControls(): void {
   }
   if (!allowed) progress.hidden = true;
   updateSourceControls();
+  renderManualLyricsControls();
 }
 
 function updateCaptionProgress(): void {
@@ -648,96 +648,10 @@ function renderPreferenceControls(): void {
   for (const input of preferenceInputs) input.checked = preserved.has(input.value as PreservedLanguage);
 }
 
-function renderGeminiKeyControls(): void {
-  geminiKeyInput.disabled = geminiKeySaving || !geminiSettingsReady;
-  saveGeminiKeyButton.disabled = geminiKeySaving || !geminiSettingsReady;
-  removeGeminiKeyButton.disabled = geminiKeySaving || !geminiSettingsReady || !geminiApiKey;
-  geminiKeyInput.placeholder = geminiApiKey ? "已儲存；輸入新 key 可取代" : "未設定：使用基本流程";
-  geminiMode.textContent = geminiApiKey ? "使用自己的額度" : "基本流程";
-}
-
 function setAiLookupStatus(message: string): void {
   aiLookupStatus.textContent = message;
   aiLookupStatus.hidden = !message;
 }
-
-function applyGeminiApiKey(key: string): void {
-  const changed = geminiApiKey !== key;
-  geminiApiKey = key;
-  renderGeminiKeyControls();
-  if (!changed) return;
-  songResolutionCache.clear();
-  const report = playbackReport;
-  if (singalongMode === "single" && report) {
-    clearSelectedTrack("AI 解析設定已變更；正在重新比對目前曲目。");
-    displayPlaybackSource(report);
-    void lookupSingleLyrics(report, singleOperationGeneration);
-  }
-}
-
-async function initializeGeminiKey(): Promise<void> {
-  const generation = ++geminiKeyReadGeneration;
-  try {
-    const storage = chromeApi?.storage?.local;
-    if (!storage) throw new Error("storage.local unavailable");
-    await storage.setAccessLevel?.({ accessLevel: "TRUSTED_CONTEXTS" });
-    const key = await readGeminiApiKey(storage);
-    if (generation !== geminiKeyReadGeneration) return;
-    applyGeminiApiKey(key);
-    geminiKeyStatus.textContent = geminiApiKey ? "AI 解析已啟用；僅使用你自己的 Gemini 額度。" : "";
-  } catch {
-    if (generation === geminiKeyReadGeneration) geminiKeyStatus.textContent = "無法讀取本機 key；本次使用基本流程。";
-  } finally {
-    geminiSettingsReady = true;
-    renderGeminiKeyControls();
-  }
-}
-
-async function saveGeminiKey(key: string): Promise<void> {
-  if (geminiKeySaving) return;
-  geminiKeySaving = true;
-  renderGeminiKeyControls();
-  try {
-    const storage = chromeApi?.storage?.local;
-    if (!storage) throw new Error("storage.local unavailable");
-    await storage.setAccessLevel?.({ accessLevel: "TRUSTED_CONTEXTS" });
-    await saveGeminiApiKey(storage, key);
-    ++geminiKeyReadGeneration;
-    geminiKeyInput.value = "";
-    applyGeminiApiKey(key.trim());
-    geminiKeyStatus.textContent = key.trim()
-      ? "Key 已儲存在本機；AI 解析僅使用你自己的額度。"
-      : "Key 已移除；現在使用基本流程，不呼叫 Gemini。";
-  } catch {
-    geminiKeyStatus.textContent = "Key 未能儲存；請確認輸入格式與本機儲存權限，設定尚未變更。";
-  } finally {
-    geminiKeySaving = false;
-    renderGeminiKeyControls();
-  }
-}
-
-saveGeminiKeyButton.addEventListener("click", () => {
-  if (!geminiKeyInput.value.trim()) {
-    geminiKeyStatus.textContent = "請先輸入 key；要停用 AI 請按「移除金鑰」。";
-    return;
-  }
-  void saveGeminiKey(geminiKeyInput.value);
-});
-removeGeminiKeyButton.addEventListener("click", () => void saveGeminiKey(""));
-chromeApi?.storage?.onChanged?.addListener((changes, areaName) => {
-  const storage = chromeApi.storage?.local;
-  if (areaName !== "local" || !(GEMINI_API_KEY_STORAGE_KEY in changes) || !storage) return;
-  const readGeneration = ++geminiKeyReadGeneration;
-  void readGeminiApiKey(storage).then((key) => {
-    if (readGeneration !== geminiKeyReadGeneration) return;
-    applyGeminiApiKey(key);
-    geminiKeyStatus.textContent = key ? "本機 key 已更新；AI 解析使用你自己的額度。" : "Key 已移除；現在使用基本流程。";
-  }).catch(() => {
-    if (readGeneration !== geminiKeyReadGeneration) return;
-    applyGeminiApiKey("");
-    geminiKeyStatus.textContent = "無法讀取更新後的 key；本次已停用 AI，使用基本流程。";
-  });
-});
 
 async function initializeDisplayPreferences(): Promise<void> {
   try {
@@ -945,6 +859,114 @@ function persistAiRejections(): void {
     });
   } catch {
     setAiLookupStatus("已在本頁停用，但本機儲存失敗，重新開啟後不會保留。");
+  }
+}
+
+function manualTarget(): PlaybackReport | null {
+  const report = playbackReport;
+  return singalongMode === "single" && report !== null && isEligibleYoutubeReport(report) &&
+    report.segmentStartMs === undefined && report.durationMs > 0 ? report : null;
+}
+
+function renderManualLyricsControls(): void {
+  const report = manualTarget();
+  const rawTitle = report ? report.rawTitle ?? report.title : null;
+  if (rawTitle !== manualSearchTitle) {
+    openLrclibSearchLink.href = rawTitle ? `https://lrclib.net/search/${encodeURIComponent(titleLookupKeyword(rawTitle))}` : "https://lrclib.net/";
+    manualSearchTitle = rawTitle;
+  }
+  copyAiPromptButton.disabled = !report;
+  manualLyricsInput.disabled = applyManualLyricsButton.disabled = !report || manualApplying;
+  const chosen = report ? manualSelections.get(report.mediaId) : undefined;
+  clearManualLyricsButton.hidden = chosen === undefined;
+  clearManualLyricsButton.disabled = manualApplying;
+  const mode = chosen === undefined ? "自動比對" : `已指定 LRCLIB ${chosen}`;
+  if (manualLyricsMode.textContent !== mode) manualLyricsMode.textContent = mode;
+}
+
+async function initializeManualSelections(): Promise<void> {
+  try {
+    const storage = chromeApi?.storage?.local;
+    if (!storage) throw new Error("storage.local unavailable");
+    manualSelections = parseManualSelections((await storage.get(MANUAL_LYRICS_STORAGE_KEY))[MANUAL_LYRICS_STORAGE_KEY]);
+    // Drop the API key stored by earlier versions that called Gemini.
+    void Promise.resolve(storage.remove?.("geminiApiKey")).catch(() => {});
+  } catch {
+    manualSelections = new Map();
+  }
+}
+
+function persistManualSelections(): void {
+  const failed = () => { manualLyricsStatus.textContent = "已在本頁套用，但本機儲存失敗，重新開啟後不會保留。"; };
+  try {
+    const storage = chromeApi?.storage?.local;
+    if (!storage) throw new Error("storage.local unavailable");
+    void Promise.resolve(storage.set({ [MANUAL_LYRICS_STORAGE_KEY]: [...manualSelections] })).catch(failed);
+  } catch {
+    failed();
+  }
+}
+
+function cacheManualRecord(record: LrclibRecord): void {
+  manualRecordCache.delete(record.id);
+  manualRecordCache.set(record.id, record);
+  if (manualRecordCache.size > 20) manualRecordCache.delete(manualRecordCache.keys().next().value!);
+}
+
+async function applyManualLyrics(): Promise<void> {
+  const report = manualTarget();
+  if (!report || manualApplying) return;
+  const parsed = parseManualLyricsInput(manualLyricsInput.value);
+  if (!parsed) {
+    manualLyricsStatus.textContent = "看不懂這段內容；請貼上 LRCLIB 歌曲連結（https://lrclib.net/tracks/數字），或「歌名：…」「歌手：…」兩行。";
+    return;
+  }
+  if (parsed.kind === "undetermined") {
+    manualLyricsStatus.textContent = "AI 無法確定這支影片的曲目；可改按「到 LRCLIB 搜尋」自行挑選。";
+    return;
+  }
+  manualApplying = true;
+  renderManualLyricsControls();
+  manualLyricsStatus.textContent = "正在向 LRCLIB 查詢…";
+  try {
+    let record: LrclibRecord;
+    if (parsed.kind === "lrclib-id") {
+      const found = manualRecordCache.get(parsed.id) ?? await fetchLrclibRecord(parsed.id);
+      if (!found) {
+        manualLyricsStatus.textContent = `LRCLIB 沒有編號 ${parsed.id} 的歌曲。`;
+        return;
+      }
+      if (!found.syncedLyrics) {
+        manualLyricsStatus.textContent = `LRCLIB ${parsed.id}「${found.trackName}」沒有同步歌詞，無法跟唱。`;
+        return;
+      }
+      record = found;
+    } else {
+      const { candidates, failures } = await searchLyricsByVideoTitle(`${parsed.artist} - ${parsed.title}`, report.durationMs);
+      const selection = await selectAutomaticLyrics(candidates, [parsed.artist], report.durationMs);
+      if (!selection) {
+        manualLyricsStatus.textContent = `LRCLIB 沒有片長相符的「${parsed.title}」— ${parsed.artist} 同步歌詞；可按「到 LRCLIB 搜尋」自行挑選版本後貼上連結。${failures.length > 0 ? "（部分查詢失敗，可稍後再試）" : ""}`;
+        return;
+      }
+      record = selection.record;
+    }
+    if (playbackReport?.mediaId !== report.mediaId) {
+      manualLyricsStatus.textContent = "影片已切換，未套用。";
+      return;
+    }
+    manualSelections.delete(report.mediaId);
+    manualSelections.set(report.mediaId, record.id);
+    if (manualSelections.size > MAX_MANUAL_SELECTIONS) manualSelections.delete(manualSelections.keys().next().value!);
+    cacheManualRecord(record);
+    manualLyricsInput.value = "";
+    manualLyricsStatus.textContent = `已指定 LRCLIB ${record.id}「${record.trackName}」— ${record.artistName}。`;
+    persistManualSelections();
+    void startSingleDetection();
+  } catch (error) {
+    manualLyricsStatus.textContent = `LRCLIB 查詢失敗：${error instanceof Error ? error.message : "未知錯誤"}`;
+  } finally {
+    manualApplying = false;
+    renderManualLyricsControls();
   }
 }
 
@@ -1266,9 +1288,8 @@ async function lookupSingleLyrics(report: PlaybackReport, operationGeneration: n
   singleLookupController?.abort();
   const controller = new AbortController();
   singleLookupController = controller;
-  const requestKey = geminiApiKey;
   const isCurrent = () => !controller.signal.aborted && operationGeneration === singleOperationGeneration &&
-    singalongMode === "single" && playbackReport !== null && requestKey === geminiApiKey;
+    singalongMode === "single" && playbackReport !== null;
   lyricsLookupPending = true;
   setCaptionActionsVisible(false);
   lyricsStatus.textContent = "正在比對曲名、歌手與片長，自動選擇同步歌詞…";
@@ -1276,7 +1297,10 @@ async function lookupSingleLyrics(report: PlaybackReport, operationGeneration: n
   lyricsLookupError = "";
   lyricsQueryStatus.textContent = "";
   lyricsQueryStatus.hidden = true;
-  specialVideo = report.appId === "youtube" && report.segmentStartMs === undefined
+  const manualId = report.appId === "youtube" && report.segmentStartMs === undefined && report.durationMs > 0
+    ? manualSelections.get(report.mediaId)
+    : undefined;
+  specialVideo = manualId === undefined && report.appId === "youtube" && report.segmentStartMs === undefined
     ? specialVideoKind(report.rawTitle ?? report.title)
     : null;
   if (specialVideo) {
@@ -1301,7 +1325,28 @@ async function lookupSingleLyrics(report: PlaybackReport, operationGeneration: n
     let exactCandidatesCount = 0;
     let failuresCount = 0;
 
-    if (candidateArtists.length && artistIsVerified) {
+    if (manualId !== undefined) {
+      try {
+        const record = manualRecordCache.get(manualId) ?? await fetchLrclibRecord(manualId, lyricsFetcher);
+        if (!isCurrent()) return;
+        if (!record?.syncedLyrics) throw new Error("LRCLIB 已找不到這筆同步歌詞。");
+        const lyrics = await parseRecordLyrics(record, `lrclib-${record.id}`);
+        if (!isCurrent()) return;
+        if (lyrics.format === "plain" || lyrics.granularity === "none") throw new Error("這筆歌詞沒有有效時間戳。");
+        selection = { record, lyrics, recordCount: 1, timelineCount: 1 };
+        resolvedTrack = { title: record.trackName, artists: [record.artistName], source: "manual" };
+        displayPlaybackSource(report);
+        if (typeof record.duration === "number" && Math.abs(record.duration * 1000 - report.durationMs) > durationTolerance(report.durationMs)) {
+          setAiLookupStatus("你指定的歌詞片長與影片差距較大；若時間不同步，可用「校正歌詞時間」調整。");
+        }
+      } catch (error) {
+        if (!isCurrent()) return;
+        lyricsQueryStatus.textContent = `手動指定的 LRCLIB ${manualId} 無法載入：${error instanceof Error ? error.message : "未知錯誤"}；改用自動比對。`;
+        lyricsQueryStatus.hidden = false;
+      }
+    }
+
+    if (!selection && candidateArtists.length && artistIsVerified) {
       const { recordsByArtist: resultsByArtist, failures } = await searchLyricsForArtists(trackTitle, candidateArtists, lyricsFetcher);
       if (!isCurrent()) return;
       if (failures.length) {
@@ -1352,7 +1397,7 @@ async function lookupSingleLyrics(report: PlaybackReport, operationGeneration: n
     if (guessRejected) {
       aiMatchRejectButton.textContent = "恢復自動比對";
       aiMatchRejectButton.hidden = false;
-      setAiLookupStatus("你已停用這支影片的標題比對與 AI 比對。");
+      setAiLookupStatus("你已停用這支影片的標題比對。");
     }
 
     if (canGuessFromTitle && !guessRejected) {
@@ -1373,62 +1418,6 @@ async function lookupSingleLyrics(report: PlaybackReport, operationGeneration: n
       }
     }
 
-    const canAttemptAi =
-      !selection &&
-      !guessRejected &&
-      Boolean(requestKey) &&
-      report.appId === "youtube" &&
-      report.segmentStartMs === undefined &&
-      report.durationMs > 0;
-
-    if (canAttemptAi) {
-      const rawTitle = report.rawTitle ?? report.title;
-      const channel = report.artistVerified ? "" : (report.artists[0] ?? "");
-      const cacheKey = JSON.stringify([report.mediaId, rawTitle, report.durationMs]);
-      let identity: SongIdentity | null = null;
-      let identityError = false;
-      try {
-        if (songResolutionCache.has(cacheKey)) {
-          identity = songResolutionCache.get(cacheKey) ?? null;
-        } else {
-          setAiLookupStatus("LRCLIB 沒有同名歌詞；正在用你自己的 Gemini 額度（含 Google 搜尋）查詢正式曲名…");
-          identity = await identifySong({ rawTitle, channel, durationMs: report.durationMs }, requestKey, { signal: controller.signal });
-          if (!isCurrent()) return;
-          if (songResolutionCache.size >= 50) songResolutionCache.delete(songResolutionCache.keys().next().value!);
-          songResolutionCache.set(cacheKey, identity);
-        }
-      } catch (error) {
-        if (!isCurrent()) return;
-        identityError = true;
-        const message = error instanceof Error ? error.message : "AI 曲目解析失敗。";
-        setAiLookupStatus(`${message} 未套用 AI 結果。`);
-      }
-      if (!isCurrent()) return;
-
-      if (identity) {
-        const { candidates, failures } = await searchLyricsForIdentity(identity, report.durationMs, lyricsFetcher);
-        if (!isCurrent()) return;
-        if (failures.length) {
-          lyricsQueryStatus.textContent = `部分歌詞查詢失敗（${failures.length} 次）：${failures[0].artist} — ${failures[0].message} 已保留成功結果。`;
-          lyricsQueryStatus.hidden = false;
-          failuresCount = failures.length;
-        }
-        exactCandidatesCount = candidates.length;
-        const aiSelection = await selectAutomaticLyrics(candidates, identity.artists, report.durationMs);
-        if (!isCurrent()) return;
-        if (aiSelection) {
-          selection = aiSelection;
-          resolvedTrack = { title: selection.record.trackName, artists: [selection.record.artistName], source: "ai" };
-          displayPlaybackSource(report);
-          setAiLookupStatus(`AI 經 Google 搜尋將這支影片對應為「${selection.record.trackName}」— ${selection.record.artistName}（LRCLIB ${selection.record.id}）；若不是這首，請按「不是這首」。`);
-        } else {
-          setAiLookupStatus(`AI 查到正式曲名「${identity.titles.join("／")}」，但 LRCLIB 沒有片長相符的同步歌詞。`);
-        }
-      } else if (!identityError) {
-        setAiLookupStatus("AI 未能確認這支影片對應的單一正式曲目；未套用歌詞。");
-      }
-    }
-
     if (!selection) {
       selectedLyrics = null;
       lyricsMode = false;
@@ -1443,13 +1432,13 @@ async function lookupSingleLyrics(report: PlaybackReport, operationGeneration: n
         return;
       }
       if (!artistIsVerified) {
-        lyricsStatus.textContent = "YouTube 沒有可驗證的歌手資料；不會猜測或顯示不確定的歌詞。";
+        lyricsStatus.textContent = "YouTube 沒有可驗證的歌手資料；不會猜測歌詞。可展開「手動指定歌詞」自行指定。";
         setStatus("缺少可驗證的歌手資訊，未套用歌詞。", "idle");
         return;
       }
       lyricsStatus.textContent = exactCandidatesCount > 0
         ? "相符資料沒有有效時間戳；未顯示不同步的歌詞。"
-        : "沒有找到曲名與歌手相符的同步歌詞。";
+        : "沒有找到曲名與歌手相符的同步歌詞；可展開「手動指定歌詞」自行指定。";
       setStatus(failuresCount ? "部分查詢失敗；目前未取得可用同步歌詞，可按「重新偵測」再查。" : `已查詢「${trackTitle}」；目前未取得相符同步歌詞。`, failuresCount ? "error" : "idle");
       return;
     }
@@ -1461,8 +1450,8 @@ async function lookupSingleLyrics(report: PlaybackReport, operationGeneration: n
     lyricsMode = true;
     stopButton.disabled = false;
     const automaticVersion = selection.recordCount > 1;
-    modeBadge.textContent = `${resolvedTrack?.source === "ai" ? "AI 曲名 · " : resolvedTrack?.source === "title-match" ? "標題比對 · " : resolvedTrack?.source === "youtube-credit" ? "YouTube 曲目資訊 · " : ""}${automaticVersion ? "自動選版同步歌詞" : "單曲同步歌詞"}`;
-    if (resolvedTrack?.source === "ai" || resolvedTrack?.source === "title-match") {
+    modeBadge.textContent = `${resolvedTrack?.source === "manual" ? "手動指定 · " : resolvedTrack?.source === "title-match" ? "標題比對 · " : resolvedTrack?.source === "youtube-credit" ? "YouTube 曲目資訊 · " : ""}${automaticVersion ? "自動選版同步歌詞" : "單曲同步歌詞"}`;
+    if (resolvedTrack?.source === "title-match") {
       aiMatchRejectButton.textContent = "不是這首";
       aiMatchRejectButton.hidden = false;
     }
@@ -1818,7 +1807,26 @@ aiMatchRejectButton.addEventListener("click", () => {
     void startSingleDetection();
   }
 });
-void Promise.all([initializeDisplayPreferences(), initializeGeminiKey(), initializeLyricTimingCorrections(), initializeAiRejections()]).then(() => {
+copyAiPromptButton.addEventListener("click", () => {
+  const report = manualTarget();
+  if (!report) return;
+  const prompt = manualLyricsPrompt({ rawTitle: report.rawTitle ?? report.title, channel: report.artists.join("、"), durationMs: report.durationMs, pageUrl: report.pageUrl });
+  void navigator.clipboard.writeText(prompt).then(
+    () => { manualLyricsStatus.textContent = "已複製提示詞；貼到你的 AI，把它回覆的兩行貼回下方。"; },
+    () => { manualLyricsStatus.textContent = "瀏覽器拒絕寫入剪貼簿，請再試一次。"; },
+  );
+});
+applyManualLyricsButton.addEventListener("click", () => void applyManualLyrics());
+clearManualLyricsButton.addEventListener("click", () => {
+  const report = manualTarget();
+  if (!report) return;
+  manualSelections.delete(report.mediaId);
+  manualLyricsStatus.textContent = "已清除；改回自動比對。";
+  persistManualSelections();
+  renderManualLyricsControls();
+  void startSingleDetection();
+});
+void Promise.all([initializeDisplayPreferences(), initializeManualSelections(), initializeLyricTimingCorrections(), initializeAiRejections()]).then(() => {
   void refreshSourceTabs();
   return startSingleDetection();
 });

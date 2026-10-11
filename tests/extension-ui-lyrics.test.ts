@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
-import { parseRecordLyrics, searchLyrics, searchLyricsByVideoTitle, searchLyricsForArtists, searchLyricsForIdentity, selectAutomaticLyrics } from "../extension-ui/src/lyrics.js";
+import { fetchLrclibRecord, LyricsHttpError, parseRecordLyrics, searchLyrics, searchLyricsByVideoTitle, searchLyricsForArtists, searchLyricsForIdentity, selectAutomaticLyrics } from "../extension-ui/src/lyrics.js";
 
 const record = (syncedLyrics?: string) => ({ id: 42, trackName: "Haru Haru", artistName: "BIGBANG", syncedLyrics });
 
@@ -170,5 +170,29 @@ describe("browser lyrics helpers", () => {
     const failed = await searchLyricsByVideoTitle(CAPPER, 226_000, broken, [0]);
     expect(failed.candidates).toEqual([]);
     expect(failed.failures.length).toBeGreaterThan(0);
+  });
+
+  it("fetches one LRCLIB record by id, mapping 404 to null and other failures to errors", async () => {
+    const record = { id: 38664232, trackName: "无人区玫瑰", artistName: "Capper, Apex, LEGGO", duration: 216, syncedLyrics: "[00:01.00]x" };
+    const urls: string[] = [];
+    const ok: typeof fetch = async (input) => { urls.push(String(input)); return new Response(JSON.stringify(record), { status: 200 }); };
+    expect(await fetchLrclibRecord(38664232, ok)).toEqual(record);
+    expect(urls).toEqual(["https://lrclib.net/api/get/38664232"]);
+    expect(await fetchLrclibRecord(1, async () => new Response("{}", { status: 404 }))).toBeNull();
+    await expect(fetchLrclibRecord(1, async () => new Response("down", { status: 503 }))).rejects.toBeInstanceOf(LyricsHttpError);
+    await expect(fetchLrclibRecord(1, async () => new Response("{\"x\":1}", { status: 200 }))).rejects.toThrow("無法辨識");
+  });
+
+  it("finds a song named by an AI-style 'artist - title' identity with collaboration credits", async () => {
+    const records = [
+      { id: 38664232, trackName: "无人区玫瑰", artistName: "Capper, Apex, LEGGO", duration: 216, syncedLyrics: "[00:01.00]x" },
+      { id: 2, trackName: "无人区玫瑰", artistName: "一颗狼星", duration: 222, syncedLyrics: "[00:01.00]x" },
+    ];
+    const fetcher: typeof fetch = async (input) => {
+      const q = new URL(String(input)).searchParams.get("q");
+      return new Response(JSON.stringify(q === "无人区玫瑰" ? records : []), { status: 200 });
+    };
+    const { candidates } = await searchLyricsByVideoTitle("Capper, Apex, LEGGO - 无人区玫瑰", 226_000, fetcher, [0]);
+    expect(candidates.map((candidate) => candidate.id)).toEqual([38664232]);
   });
 });
