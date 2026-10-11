@@ -25,7 +25,6 @@
           <p class="empty-state">正在讀取目前分頁的曲名與同步歌詞。</p>
         </div>
       </section>
-      <p id="lyric-timing-gap-status" class="timing-gap-status" role="status" aria-live="polite" hidden>MV 空白段：等待歌詞恢復。</p>
       <section class="controls" aria-label="字幕與查詢狀態">
         <div class="control-row">
           <button id="load-model" class="button button-primary" type="button" hidden>載入辨識模型</button>
@@ -46,12 +45,11 @@
       <details id="lyric-timing-editor" class="disclosure lyric-timing" name="drawer" hidden>
         <summary>校正歌詞時間</summary>
         <div class="disclosure-content">
-          <p class="fine-print">在歌詞起唱時暫停影片、選擇對應歌詞，再依序記錄空白前／後對齊；只有片頭延遲時可只記錄前點。</p>
-          <label for="lyric-timing-line">目前對齊歌詞</label>
-          <select id="lyric-timing-line" disabled></select>
+          <p class="fine-print">輸入要加到所有歌詞時間上的偏移，例如 5 或 1:05.3；負值（例如 -2.5）讓歌詞提前。只套用於這支影片與此歌詞版本。</p>
+          <label for="lyric-timing-offset">歌詞時間偏移</label>
+          <input id="lyric-timing-offset" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" maxlength="16" placeholder="例如 5、-2.5 或 1:05.3" disabled />
           <div class="lyric-timing-actions">
-            <button id="lyric-timing-before" class="button button-secondary" type="button" disabled>記錄空白前對齊</button>
-            <button id="lyric-timing-after" class="button button-secondary" type="button" disabled>記錄空白後對齊</button>
+            <button id="lyric-timing-apply" class="button button-secondary" type="button" disabled>套用偏移</button>
             <button id="lyric-timing-clear" class="button button-secondary" type="button" disabled>清除這支影片校時</button>
           </div>
           <p id="lyric-timing-feedback" class="fine-print" role="status" aria-live="polite"></p>

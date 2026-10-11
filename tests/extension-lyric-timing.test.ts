@@ -1,39 +1,74 @@
 import { describe, expect, it } from "vitest";
-import { isValidLyricTimingCorrection, lyricPositionForVideo, type LyricTimingCorrection } from "../extension-ui/src/lyric-timing.js";
+import {
+  formatLyricOffset,
+  isValidLyricOffset,
+  lyricPositionForVideo,
+  MAX_LYRIC_OFFSET_MS,
+  parseLyricOffset,
+} from "../extension-ui/src/lyric-timing.js";
 
-describe("per-video lyric timing correction", () => {
-  it("maps the intro offset and holds lyrics through the MV gap", () => {
-    const intro: LyricTimingCorrection = { before: { videoMs: 10000, lyricMs: 6000 } };
-    expect(lyricPositionForVideo(6000)).toEqual({ positionMs: 6000, inGap: false });
-    expect(lyricPositionForVideo(13000, intro)).toEqual({ positionMs: 9000, inGap: false });
+describe("per-video lyric timing offset", () => {
+  describe("lyricPositionForVideo", () => {
+    it("subtracts the offset from video time and clamps at zero", () => {
+      expect(lyricPositionForVideo(13000, 5000)).toBe(8000);
+      expect(lyricPositionForVideo(13000, -3000)).toBe(16000);
+      expect(lyricPositionForVideo(2000, 5000)).toBe(0);
+      expect(lyricPositionForVideo(6000)).toBe(6000);
+    });
 
-    const correction: LyricTimingCorrection = {
-      before: intro.before,
-      after: { videoMs: 70000, lyricMs: 30000 },
-    };
-    expect(lyricPositionForVideo(33999, correction)).toEqual({ positionMs: 29999, inGap: false });
-    expect(lyricPositionForVideo(34000, correction)).toEqual({ positionMs: 29999, inGap: true });
-    expect(lyricPositionForVideo(69999, correction)).toEqual({ positionMs: 29999, inGap: true });
-    expect(lyricPositionForVideo(70000, correction)).toEqual({ positionMs: 30000, inGap: false });
-    expect(lyricPositionForVideo(73000, correction)).toEqual({ positionMs: 33000, inGap: false });
-    expect(lyricPositionForVideo(13000, correction)).toEqual(lyricPositionForVideo(13000, intro));
+    it("ignores malformed offsets", () => {
+      expect(lyricPositionForVideo(6000, Number.NaN)).toBe(6000);
+      expect(lyricPositionForVideo(6000, 1.5)).toBe(6000);
+      expect(lyricPositionForVideo(6000, MAX_LYRIC_OFFSET_MS + 1)).toBe(6000);
+    });
+
+    it("treats invalid video time as zero", () => {
+      expect(lyricPositionForVideo(Number.NaN, 5000)).toBe(0);
+      expect(lyricPositionForVideo(-1, -2000)).toBe(2000);
+    });
   });
 
-  it("rejects invalid anchors and second points that do not encode a real gap", () => {
-    const before = { videoMs: 10000, lyricMs: 6000 };
-    expect(isValidLyricTimingCorrection({ before })).toBe(true);
-    expect(isValidLyricTimingCorrection({ before, after: { videoMs: 9000, lyricMs: 30000 } })).toBe(false);
-    expect(isValidLyricTimingCorrection({ before, after: { videoMs: 70000, lyricMs: 5000 } })).toBe(false);
-    expect(isValidLyricTimingCorrection({ before, after: { videoMs: 34000, lyricMs: 30000 } })).toBe(false);
-    expect(isValidLyricTimingCorrection({ before: { videoMs: -1, lyricMs: 0 } })).toBe(false);
-    expect(isValidLyricTimingCorrection({ before: { videoMs: Number.NaN, lyricMs: 0 } })).toBe(false);
-    expect(isValidLyricTimingCorrection({ before: { videoMs: 0, lyricMs: Number.POSITIVE_INFINITY } })).toBe(false);
+  describe("parseLyricOffset", () => {
+    it("parses seconds and m:ss with optional sign", () => {
+      expect(parseLyricOffset("5")).toBe(5000);
+      expect(parseLyricOffset("5.5")).toBe(5500);
+      expect(parseLyricOffset("-2.5")).toBe(-2500);
+      expect(parseLyricOffset("+1:05.3")).toBe(65300);
+      expect(parseLyricOffset("1：05")).toBe(65000);
+      expect(parseLyricOffset(" 0:00 ")).toBe(0);
+      expect(parseLyricOffset("-0:00")).toBe(0);
+      expect(Object.is(parseLyricOffset("-0"), 0)).toBe(true);
+      expect(parseLyricOffset("60:00")).toBe(3600000);
+    });
+
+    it("rejects malformed or out-of-range input", () => {
+      for (const input of ["1:60", "", "abc", "1:2:3", "5.1234", "60:00.001"]) {
+        expect(parseLyricOffset(input)).toBeNull();
+      }
+    });
   });
 
-  it("ignores malformed corrections without changing normal playback", () => {
-    expect(lyricPositionForVideo(6000, { before: { videoMs: -10, lyricMs: 900 } } as LyricTimingCorrection))
-      .toEqual({ positionMs: 6000, inGap: false });
-    expect(lyricPositionForVideo(6000, { before: { videoMs: 10, lyricMs: 0 }, after: { videoMs: 5, lyricMs: 100 } } as LyricTimingCorrection))
-      .toEqual({ positionMs: 6000, inGap: false });
+  describe("formatLyricOffset", () => {
+    it("formats with sign and minutes", () => {
+      expect(formatLyricOffset(65300)).toBe("+1:05.3");
+      expect(formatLyricOffset(-2500)).toBe("-2.5");
+      expect(formatLyricOffset(5000)).toBe("+5");
+      expect(formatLyricOffset(60000)).toBe("+1:00");
+    });
+
+    it("round-trips through parseLyricOffset", () => {
+      for (const value of [1, -999, 59999, 60000, -3600000]) {
+        expect(parseLyricOffset(formatLyricOffset(value))).toBe(value);
+      }
+    });
+  });
+
+  describe("isValidLyricOffset", () => {
+    it("accepts only non-zero integer milliseconds within the limit", () => {
+      for (const value of [0, 1.5, "5", { before: { videoMs: 1, lyricMs: 0 } }, 3600001]) {
+        expect(isValidLyricOffset(value)).toBe(false);
+      }
+      expect(isValidLyricOffset(-3600000)).toBe(true);
+    });
   });
 });
