@@ -4,60 +4,125 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b1017">
-  <meta name="description" content="Lyrics Everywhere 在你的電腦讀取播放資訊並同步歌詞。Cloudflare 僅提供下載頁，不接收播放資料。">
-  <title>Lyrics Everywhere｜跟上正在播放的歌</title>
+  <meta name="description" content="Lyrics Everywhere 耳邊字幕 隱私權政策。說明本擴充功能於本機與第三方服務處理資料的範圍與原則。">
+  <title>Lyrics Everywhere 耳邊字幕｜隱私權政策</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="#top" aria-label="Lyrics Everywhere 首頁"><span class="brand-mark" aria-hidden="true">♪</span> Lyrics Everywhere</a>
-    <nav aria-label="主要導覽"><a href="#downloads">下載</a><a href="#how-it-works">運作方式</a><a href="#support">支援範圍</a></nav>
+    <a class="brand" href="/" aria-label="Lyrics Everywhere 首頁"><span class="brand-mark" aria-hidden="true">♪</span> Lyrics Everywhere</a>
+    <nav aria-label="主要導覽">
+      <a href="#scope">適用範圍</a>
+      <a href="#local-data">本機處理</a>
+      <a href="#third-party">第三方傳輸</a>
+      <a href="#commitments">承諾</a>
+      <a href="#deletion">刪除與管理</a>
+      <a href="#contact">聯絡我們</a>
+    </nav>
   </header>
+
   <main id="top">
-    <section class="hero" aria-labelledby="hero-title">
-      <div class="hero-copy">
-        <p class="eyebrow">本機播放資訊 · 即時同步歌詞</p>
-        <h1 id="hero-title">歌在播放，<br><span>歌詞跟得上。</span></h1>
-        <p class="intro">桌面程式在本機讀取正在播放的歌曲並同步歌詞。查歌詞時會向 LRCLIB 查詢；Cloudflare 這個網站只提供下載，不接收播放資訊。</p>
-        <a class="primary-link" href="#downloads">選擇你的桌面版本 <span aria-hidden="true">↓</span></a>
-      </div>
-      <div class="hero-visual">
-        <div class="lyric-stage" aria-label="同步歌詞示意">
-          <p class="stage-label">LIVE LYRIC · 00:32</p>
-          <p class="dim">聲音從你的播放器開始</p>
-          <p class="dim">搜尋歌詞，準備跟唱</p>
-          <p class="active-line"><span class="pulse" aria-hidden="true"></span>此刻唱到的這一句</p>
-          <p class="phonetic-line">此刻 唱到 的 這 一句</p>
-          <p class="dim">下一句已經準備好了</p>
-        </div>
-        <p class="caption">歌詞高亮為介面示意，實際結果依歌詞資料與播放資訊而定。</p>
+    <div style="padding: 56px 0 24px;">
+      <p class="eyebrow">隱私權政策 · Privacy Policy</p>
+      <h1 style="font-size: clamp(2.2rem, 5vw, 3.8rem); font-weight: 700; letter-spacing: -0.04em; margin-bottom: 12px;">Lyrics Everywhere 耳邊字幕 隱私權政策</h1>
+      <p class="intro">生效日期：2026 年 10 月 12 日</p>
+    </div>
+
+    <section id="scope" class="section" aria-labelledby="scope-title">
+      <div class="section-heading">
+        <h2 id="scope-title">適用範圍</h2>
+        <p>本政策適用於「Lyrics Everywhere 耳邊字幕」（以下簡稱「本擴充功能」）瀏覽器擴充功能（適用於 Google Chrome 與 Microsoft Edge）。本政策說明本擴充功能在使用者瀏覽支援網站與使用歌詞同步、音訊辨識功能時所處理、儲存與傳輸的資料範圍。</p>
       </div>
     </section>
 
-    <section id="downloads" class="section downloads" aria-labelledby="downloads-title">
-      <div class="section-heading"><p class="eyebrow">桌面版與 Chrome 擴充功能</p><h2 id="downloads-title">下載安裝檔</h2><p>下載連結只會在 GitHub Release 有可用檔案時顯示。</p></div>
-      <div id="release-state" class="release-state" role="status" aria-live="polite">正在檢查最新發行版本…</div>
-      <div id="release-assets" class="asset-grid" hidden></div>
-      <noscript><p class="notice">請啟用 JavaScript，以便載入 GitHub 最新發行版本與可用安裝檔。</p></noscript>
-      <p class="checksum-note">每次桌面發行均附 <code>SHA256SUMS.txt</code>，可用來核對下載檔案。</p><p class="notice">Windows 安裝檔只會在 Windows 10／11 互動桌面驗收完成後發布。macOS 安裝檔未簽章或 notarize 時，首次開啟可能需要在系統設定允許。</p>
-    </section>
-
-    <section id="how-it-works" class="section split" aria-labelledby="local-title">
-      <div><p class="eyebrow">你的電腦執行 Companion</p><h2 id="local-title">本機讀取，雲端只供下載</h2></div>
-      <div class="copy"><p>桌面程式在這台電腦讀取公開的媒體工作階段並顯示歌詞。查歌詞時會將歌曲標題與歌手送至 LRCLIB 查詢；YouTube 與 YouTube Music 的 Chrome 擴充功能只連到同一台電腦上的 Companion。</p><p>Cloudflare Pages 只託管這個下載頁；不執行 Companion、不接收播放資訊，也不提供共用的遠端播放工作階段。</p></div>
-    </section>
-
-    <section id="support" class="section support" aria-labelledby="support-title">
-      <p class="eyebrow">支援範圍與限制</p><h2 id="support-title">先確認你的播放方式</h2>
+    <section id="local-data" class="section" aria-labelledby="local-title">
+      <div class="section-heading">
+        <h2 id="local-title">在本機處理的資料</h2>
+        <p>本擴充功能的核心設計為「本機優先」（Local First），絕大多數資料均僅於使用者的瀏覽器環境內運作，不傳送至任何開發者專屬伺服器：</p>
+      </div>
       <div class="support-grid">
-        <article><h3>Windows 10／11 · x64</h3><p>目標支援系統公開媒體工作階段的桌面播放器，以及 Chrome 中的 YouTube／YouTube Music。Windows 播放器實機驗收完成前不會發布安裝檔。Spotify 桌面版可能提供媒體資訊；不保證每個播放器都會公開工作階段。</p></article>
-        <article><h3>macOS · Apple silicon／Intel</h3><p>保留 macOS Spotify 桌面 connector，並支援 Chrome 中的 YouTube／YouTube Music。</p></article>
-        <article><h3>沒有偵測到歌曲？</h3><p>播放器需提供公開媒體工作階段與標題、歌手資訊。沒有媒體工作階段或缺少必要欄位時，應用程式會顯示無可用播放資訊；不會從原始聲音猜歌。</p></article>
-        <article><h3>歌詞可能找不到</h3><p>同步歌詞依既有歌詞資料來源提供。若查無歌詞，播放資訊仍在本機處理，介面會顯示沒有可用歌詞。</p></article>
+        <article>
+          <h3>分頁音訊（Tab Audio）</h3>
+          <p>僅在使用者明確點擊「建立字幕」時，透過瀏覽器標準 <code>tabCapture</code> 串流擷取當前 YouTube 分頁的音訊。音訊資料直接在瀏覽器側欄內的本機 WebGPU 背景執行緒（Web Worker）進行 Whisper 語音辨識，<strong>完全不被錄製、不保存原始音訊、亦絕不上傳至任何遠端伺服器</strong>。</p>
+        </article>
+        <article>
+          <h3>播放中繼資料（Playback Metadata）</h3>
+          <p>在使用者開啟支援分頁時，讀取當前播放之曲目標題、歌手／頻道名稱、影片 ID、播放進度與片長。此資訊僅暫存於擴充功能執行記憶體中，供歌詞查詢與同步比對顯示使用，不會常態保留。</p>
+        </article>
+        <article>
+          <h3>擴充功能本機設定（chrome.storage.local）</h3>
+          <p>儲存使用者的介面偏好（字體大小、讀音顯示）、特定影片的手動校時偏移量（秒數）、手動選取的 LRCLIB 歌曲編號，以及使用者標記不使用自動比對的影片 ID 清單。資料僅存放於使用者本機裝置。</p>
+        </article>
+        <article>
+          <h3>辨識字幕紀錄（IndexedDB）</h3>
+          <p>使用者透過本機模型完成辨識的字幕片段與時間戳記，會儲存在本機瀏覽器的 IndexedDB 資料庫中，以便下次重播同一影片時直接調用。資料完全保存在使用者本機。</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="third-party" class="section" aria-labelledby="third-party-title">
+      <div class="section-heading">
+        <h2 id="third-party-title">傳送到第三方的資料</h2>
+        <p>為提供同步歌詞與本機模型下載功能，本擴充功能僅向下列第三方服務發出必要請求：</p>
+      </div>
+      <div class="support-grid">
+        <article>
+          <h3>LRCLIB（lrclib.net）</h3>
+          <p>為取得同步動態歌詞，本擴充功能會將歌曲標題、歌手名稱、標題關鍵字或影片長度送出至開源公開歌詞資料庫 LRCLIB 進行查詢。LRCLIB 會依其服務政策接收標準 HTTP 請求標頭（包含使用者 IP 位址與 User-Agent）。</p>
+        </article>
+        <article>
+          <h3>Hugging Face（huggingface.co / hf.co）</h3>
+          <p>當使用者在側欄點擊「載入辨識模型」時，擴充功能會自 Hugging Face 下載 ONNX Whisper 語音模型權重檔並暫存在瀏覽器快取中。下載過程為標準 HTTPS 檔案抓取，Hugging Face 會收到使用者的 IP 位址與連線資訊。</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="commitments" class="section" aria-labelledby="commitments-title">
+      <div class="section-heading">
+        <h2 id="commitments-title">我們不做的事</h2>
+      </div>
+      <div class="support-grid">
+        <article>
+          <h3>無分析追蹤與無廣告</h3>
+          <p>本擴充功能不包含任何 Google Analytics、Mixpanel 或第三方遙測／追蹤程式碼，亦不含任何廣告 SDK。</p>
+        </article>
+        <article>
+          <h3>不蒐集、不販售個人資料</h3>
+          <p>我們絕不蒐集、不出售、不出租、亦不轉移任何使用者的個人身分資訊、瀏覽歷史或帳戶資料給任何第三方或廣告商。</p>
+        </article>
+        <article>
+          <h3>不上傳任何音訊或語音</h3>
+          <p>所有語音轉文字辨識皆於使用者本機 GPU / CPU 執行，絕不上傳音訊至任何雲端 AI 語音識別 API。</p>
+        </article>
+        <article>
+          <h3>不注入任何未經授權內容</h3>
+          <p>腳本僅在支援之 YouTube 與 Spotify 播放頁讀取必要的播放器資訊與頁面曲目資訊，絕不修改網頁其他內容或讀取個人私密資料。</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="deletion" class="section" aria-labelledby="deletion-title">
+      <div class="section-heading">
+        <h2 id="deletion-title">資料管理與刪除</h2>
+        <p>使用者隨時保有對本機所有儲存資料的完全控制權：</p>
+        <p>1. <strong>側欄清除：</strong> 可隨時在側欄點擊清除校時或快取清除功能。</p>
+        <p>2. <strong>移除擴充功能：</strong> 於瀏覽器擴充功能管理頁面將「Lyrics Everywhere 耳邊字幕」解除安裝，即可立即且永久清除所有儲存在 <code>chrome.storage.local</code> 與 IndexedDB 中的本機資料。</p>
+      </div>
+    </section>
+
+    <section id="contact" class="section" aria-labelledby="contact-title">
+      <div class="section-heading">
+        <h2 id="contact-title">聯絡我們與問題回報</h2>
+        <p>若對本隱私權政策或擴充功能資料處理方式有任何問題、建議或回饋，請透過 GitHub 專案 Issues 頁面與我們聯絡：</p>
+        <p><a href="https://github.com/des86532/lyrics-everywhere/issues" target="_blank" rel="noopener noreferrer" style="color: var(--sync); font-weight: 600;">https://github.com/des86532/lyrics-everywhere/issues</a></p>
       </div>
     </section>
   </main>
-  <footer><span>Lyrics Everywhere</span><span>本機讀取播放資訊；歌詞由 LRCLIB 查詢。</span><a href="https://github.com/des86532/lyrics-everywhere/releases">在 GitHub 查看所有發行版本</a></footer>
-  <script src="/downloads.js" defer></script>
+
+  <footer>
+    <span>Lyrics Everywhere 耳邊字幕</span>
+    <span>本機優先處理 · 尊重使用者隱私</span>
+    <a href="https://github.com/des86532/lyrics-everywhere">在 GitHub 查看原始碼</a>
+  </footer>
 </body>
 </html>
