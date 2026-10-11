@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
-import { parseRecordLyrics, searchLyrics, searchLyricsForArtists, searchLyricsForIdentity, selectAutomaticLyrics } from "../extension-ui/src/lyrics.js";
+import { parseRecordLyrics, searchLyrics, searchLyricsByVideoTitle, searchLyricsForArtists, searchLyricsForIdentity, selectAutomaticLyrics } from "../extension-ui/src/lyrics.js";
 
 const record = (syncedLyrics?: string) => ({ id: 42, trackName: "Haru Haru", artistName: "BIGBANG", syncedLyrics });
 
@@ -143,5 +143,32 @@ describe("browser lyrics helpers", () => {
       artists: ["Artist A"],
     };
     await expect(searchLyricsForIdentity(identity, 200_000, fetcher, [])).rejects.toThrow("所有歌詞查詢均失敗");
+  });
+
+  it("finds a song from video title keywords without AI, retrying transient errors and surviving total failure", async () => {
+    const CAPPER = "純享：Capper《無人區玫瑰》粉色系rapper帶來浪漫可愛心動 | 少年說唱企劃 EP12 | iQiyi精选";
+    const records = [
+      { id: 38664232, trackName: "无人区玫瑰", artistName: "Capper, Apex, LEGGO", duration: 216, syncedLyrics: "[00:01.00]x" },
+      { id: 2, trackName: "无人区玫瑰", artistName: "一颗狼星", duration: 222, syncedLyrics: "[00:01.00]x" },
+      { id: 3, trackName: "无人区玫瑰 No man's land of Rose", artistName: "capper", syncedLyrics: "[00:01.00]x" },
+    ];
+    let transientSent = false;
+    const fetcher: typeof fetch = async (input) => {
+      const q = new URL(String(input)).searchParams.get("q");
+      if (q === "無人區玫瑰" && !transientSent) {
+        transientSent = true;
+        return new Response("overloaded", { status: 503 });
+      }
+      return new Response(JSON.stringify(q === "无人区玫瑰" ? records : []), { status: 200 });
+    };
+    const { candidates, failures } = await searchLyricsByVideoTitle(CAPPER, 226_000, fetcher, [0]);
+    expect(candidates.map((candidate) => candidate.id)).toEqual([38664232]);
+    expect(failures).toEqual([]);
+    expect((await selectAutomaticLyrics(candidates, [], 226_000))?.record.id).toBe(38664232);
+
+    const broken: typeof fetch = async () => new Response("boom", { status: 500 });
+    const failed = await searchLyricsByVideoTitle(CAPPER, 226_000, broken, [0]);
+    expect(failed.candidates).toEqual([]);
+    expect(failed.failures.length).toBeGreaterThan(0);
   });
 });
