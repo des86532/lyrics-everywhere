@@ -9,6 +9,19 @@ export interface LrclibRecord {
   duration?: number;
   syncedLyrics?: string;
 }
+export const LRCLIB_TIMEOUT_MS = 10_000;
+export function lrclibFetcher(signal?: AbortSignal, timeoutMs = LRCLIB_TIMEOUT_MS): typeof fetch {
+  return async (input, init) => {
+    const timeout = AbortSignal.timeout(timeoutMs);
+    try {
+      return await fetch(input, { ...init, signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
+    } catch (error) {
+      if (timeout.aborted && !signal?.aborted) throw new Error(`LRCLIB 回應逾時（${timeoutMs / 1000} 秒）。`);
+      throw error;
+    }
+  };
+}
+
 
 export class LyricsHttpError extends Error {
   constructor(readonly status: number) {

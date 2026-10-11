@@ -6,7 +6,7 @@ import { TranscriberRegistry } from "../../src/pronunciation/transcriber-registr
 import type { PhoneticSystem } from "../../src/domain/types.js";
 import { TranscriptLines, type TranscriptLine, type TimestampedChunk } from "./transcript-lines.js";
 import type { SyncedLyrics } from "../../src/domain/types.js";
-import { durationTolerance, fetchLrclibRecord, parseRecordLyrics, searchLyricsByVideoTitle, searchLyricsForArtists, searchLyricsForIdentity, selectAutomaticLyrics, type LrclibRecord } from "./lyrics.js";
+import { durationTolerance, fetchLrclibRecord, lrclibFetcher, parseRecordLyrics, searchLyricsByVideoTitle, searchLyricsForArtists, searchLyricsForIdentity, selectAutomaticLyrics, type LrclibRecord } from "./lyrics.js";
 import { selectYouTubeMusicCredit, type YouTubeMusicCredit } from "./youtube-music-credit.js";
 import { exactSyncedCandidatesForArtists, lyricWindowStart, LYRICS_WINDOW_SIZE, mixReplayWindow, playbackPositionAt, playbackTrackPositionAt, specialVideoKind, titleLookupKeyword, type PlaybackReport, type SpecialVideoKind } from "./playback.js";
 import { MANUAL_LYRICS_STORAGE_KEY, MAX_MANUAL_SELECTIONS, manualLyricsPrompt, parseManualLyricsInput, parseManualSelections } from "./manual-lyrics.js";
@@ -939,7 +939,7 @@ async function applyManualLyrics(): Promise<void> {
   try {
     let record: LrclibRecord;
     if (parsed.kind === "lrclib-id") {
-      const found = manualRecordCache.get(parsed.id) ?? await fetchLrclibRecord(parsed.id);
+      const found = manualRecordCache.get(parsed.id) ?? await fetchLrclibRecord(parsed.id, lrclibFetcher());
       if (!found) {
         manualLyricsStatus.textContent = `LRCLIB 沒有編號 ${parsed.id} 的歌曲。`;
         return;
@@ -950,7 +950,7 @@ async function applyManualLyrics(): Promise<void> {
       }
       record = found;
     } else {
-      const { candidates, failures } = await searchLyricsByVideoTitle(`${parsed.artist} - ${parsed.title}`, report.durationMs);
+      const { candidates, failures } = await searchLyricsByVideoTitle(`${parsed.artist} - ${parsed.title}`, report.durationMs, lrclibFetcher());
       const selection = await selectAutomaticLyrics(candidates, [parsed.artist], report.durationMs);
       if (!selection) {
         manualLyricsStatus.textContent = `LRCLIB 沒有片長相符的「${parsed.title}」— ${parsed.artist} 同步歌詞；可按「到 LRCLIB 搜尋」自行挑選版本後貼上連結。${failures.length > 0 ? "（部分查詢失敗，可稍後再試）" : ""}`;
@@ -1336,7 +1336,7 @@ async function lookupSingleLyrics(report: PlaybackReport, operationGeneration: n
   renderLines();
   aiMatchRejectButton.hidden = true;
   try {
-    const lyricsFetcher: typeof fetch = (input, init) => fetch(input, { ...init, signal: controller.signal });
+    const lyricsFetcher = lrclibFetcher(controller.signal);
     let selection: { record: LrclibRecord; lyrics: SyncedLyrics; recordCount: number; timelineCount: number } | null = null;
     let exactCandidatesCount = 0;
     let failuresCount = 0;
