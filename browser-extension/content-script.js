@@ -8,7 +8,41 @@
   let currentUrl = location.href;
   let listeners = [];
   let youtubePageData = { videoId: "", chapters: [] };
+  let listening = true;
+  let lastSentAt = 0;
+  function contextInvalidated(error) { return /extension context invalidated/i.test(error?.message || ""); }
+  function send(message) {
+    lastSentAt = Date.now();
+    let result;
+    try {
+      result = chrome.runtime.sendMessage(message);
+    } catch (error) {
+      if (contextInvalidated(error)) lifecycle.stop();
+      throw error;
+    }
+    return Promise.resolve(result).then(
+      (response) => {
+        if (typeof response?.listening === "boolean") listening = response.listening;
+        return response;
+      },
+      (error) => {
+        if (contextInvalidated(error)) lifecycle.stop();
+        throw error;
+      }
+    );
+  }
+  function reportInBackground(reason) {
+    if (!listening && reason !== "event" && Date.now() - lastSentAt < 10000) return;
+    try {
+      Promise.resolve(report()).catch(() => {});
+    } catch {}
+  }
   const onRuntimeMessage = (message, _sender, sendResponse) => {
+    if (message?.type === "playback-listening") {
+      listening = message.listening === true;
+      if (listening) reportInBackground("event");
+      return;
+    }
     if (message?.type !== "request-playback-report") return;
     bind();
     Promise.resolve(report()).then(sendResponse, (error) => sendResponse({
@@ -150,7 +184,7 @@
     const durationMs = chapter
       ? chapter.durationMs ?? (mediaDurationMs > 0 ? Math.max(0, mediaDurationMs - chapter.startMs) : 0)
       : mediaDurationMs;
-    return chrome.runtime.sendMessage({ type: "playback-report", report: {
+    return send({ type: "playback-report", report: {
       version: 2, sessionId, appId: appId(), pageUrl: location.href, mediaId: id,
       ...(appId() === "youtube" ? { rawTitle: videoTitle.slice(0, 2000) } : {}),
       ...(appId() === "youtube" && !chapter && youtubePageData.videoId === id && youtubePageData.musicCredits
@@ -172,7 +206,7 @@
     listeners.forEach(([name, handler]) => currentMedia?.removeEventListener(name, handler));
     currentMedia = media;
     listeners = ["play", "pause", "seeking", "ratechange", "durationchange", "loadedmetadata", "ended", "timeupdate"].map((name) => {
-      const handler = report;
+      const handler = () => reportInBackground(name === "timeupdate" ? "timeupdate" : "event");
       media.addEventListener(name, handler);
       return [name, handler];
     });
@@ -185,7 +219,7 @@
       listeners = [];
     }
     bind();
-    report();
+    reportInBackground("tick");
   }, 1000);
   lifecycle.stop = () => {
     try { clearInterval(intervalId); } catch {}

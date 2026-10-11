@@ -367,4 +367,128 @@ describe("YouTube chapter playback reports", () => {
     tick?.();
     expect(reports[1]?.report.musicCredits).toEqual([{ title: "Credit Song", artist: "Credit Artist" }]);
   });
+
+  it("throttles tick reports when listening is false until 10s pass, while events still send", async () => {
+    const reports: Array<{ report: Record<string, unknown> }> = [];
+    let tick: (() => void) | undefined;
+    let now = 1000;
+    let listeningResponse = { listening: false };
+    const eventHandlers: Record<string, () => void> = {};
+    const media = {
+      currentTime: 10,
+      duration: 200,
+      paused: false,
+      ended: false,
+      playbackRate: 1,
+      addEventListener: (event: string, handler: () => void) => { eventHandlers[event] = handler; },
+      removeEventListener: () => undefined,
+    };
+    const window = {
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    };
+    const location = {
+      href: "https://www.youtube.com/watch?v=abcdefghijk",
+      origin: "https://www.youtube.com",
+      hostname: "www.youtube.com",
+      pathname: "/watch",
+    };
+
+    runInNewContext(contentScript, {
+      crypto: { randomUUID: () => "session-1" },
+      URL, Math, Number,
+      Date: { now: () => now },
+      location, window,
+      document: {
+        title: "Video title - YouTube",
+        querySelector: (selector: string) => selector === "video, audio" ? media : null,
+        querySelectorAll: () => [],
+      },
+      chrome: { runtime: {
+        sendMessage: (message: { report: Record<string, unknown> }) => {
+          reports.push(message);
+          return Promise.resolve(listeningResponse);
+        },
+        onMessage: { addListener: () => undefined },
+      } },
+      setInterval: (callback: () => void) => { tick = callback; return 1; },
+      clearInterval: () => undefined,
+    });
+
+    const flushMicrotasks = async () => {
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+    };
+
+    // First tick: initial send, response sets listening = false
+    tick?.();
+    await flushMicrotasks();
+    expect(reports).toHaveLength(1);
+
+    // Advance time by 3 seconds: tick should be throttled
+    now += 3000;
+    tick?.();
+    await flushMicrotasks();
+    expect(reports).toHaveLength(1);
+
+    // Pause event: should send despite throttling
+    media.paused = true;
+    eventHandlers.pause?.();
+    await flushMicrotasks();
+    expect(reports).toHaveLength(2);
+
+    // Advance time by 5 seconds (total 8s since last send): tick still throttled
+    now += 5000;
+    tick?.();
+    await flushMicrotasks();
+    expect(reports).toHaveLength(2);
+
+    // Advance time by 11 seconds (total 16s since last send): tick should now send
+    now += 11000;
+    tick?.();
+    await flushMicrotasks();
+    expect(reports).toHaveLength(3);
+  });
+
+  it("stops lifecycle when extension context is invalidated on sendMessage", async () => {
+    let clearedIntervalId: number | undefined;
+    let tick: (() => void) | undefined;
+    const media = {
+      currentTime: 10,
+      duration: 200,
+      paused: false,
+      ended: false,
+      playbackRate: 1,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    };
+    const location = {
+      href: "https://www.youtube.com/watch?v=abcdefghijk",
+      origin: "https://www.youtube.com",
+      hostname: "www.youtube.com",
+      pathname: "/watch",
+    };
+
+    runInNewContext(contentScript, {
+      crypto: { randomUUID: () => "session-1" },
+      URL, Math, Number,
+      Date: { now: () => 1000 },
+      location,
+      window: { addEventListener: () => undefined, removeEventListener: () => undefined },
+      document: {
+        title: "Video title - YouTube",
+        querySelector: (selector: string) => selector === "video, audio" ? media : null,
+        querySelectorAll: () => [],
+      },
+      chrome: { runtime: {
+        sendMessage: () => { throw new Error("Extension context invalidated."); },
+        onMessage: { addListener: () => undefined },
+      } },
+      setInterval: (callback: () => void) => { tick = callback; return 42; },
+      clearInterval: (id: number) => { clearedIntervalId = id; },
+    });
+
+    tick?.();
+    await Promise.resolve();
+    expect(clearedIntervalId).toBe(42);
+  });
 });
