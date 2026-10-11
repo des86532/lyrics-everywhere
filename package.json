@@ -9,6 +9,7 @@
     "lint": "tsc --project extension-ui/tsconfig.json --noEmit",
     "build:extension": "vite build --config extension-ui/vite.config.ts",
     "lint:extension": "tsc --project extension-ui/tsconfig.json --noEmit",
+    "package:extension": "pnpm run build && rm -rf release/lyrics-everywhere-extension.zip && mkdir -p release && cd browser-extension && zip -qr -X ../release/lyrics-everywhere-extension.zip . -x '.DS_Store' '*/.DS_Store'",
     "test": "vitest run",
     "test:watch": "vitest"
   },
