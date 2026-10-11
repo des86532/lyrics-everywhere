@@ -35,6 +35,15 @@ function validPlaybackReport(report, senderUrl) {
   if (report.artistVerified !== undefined && typeof report.artistVerified !== "boolean") return false;
   if (report.rawTitle !== undefined && (typeof report.rawTitle !== "string" || report.rawTitle.length > 2000)) return false;
   if (report.segmentStartMs !== undefined && (!Number.isFinite(report.segmentStartMs) || report.segmentStartMs < 0)) return false;
+  if (report.musicCredits !== undefined) {
+    if (!Array.isArray(report.musicCredits) || report.musicCredits.length > 10) return false;
+    for (const credit of report.musicCredits) {
+      if (!credit || typeof credit !== "object" ||
+          typeof credit.title !== "string" || typeof credit.artist !== "string" ||
+          credit.title.trim().length < 1 || credit.title.trim().length > 120 ||
+          credit.artist.trim().length < 1 || credit.artist.trim().length > 120) return false;
+    }
+  }
   return true;
 }
 

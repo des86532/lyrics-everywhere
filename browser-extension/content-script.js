@@ -7,7 +7,7 @@
   let currentMedia;
   let currentUrl = location.href;
   let listeners = [];
-  let youtubeChapters = { videoId: "", chapters: [] };
+  let youtubePageData = { videoId: "", chapters: [] };
   const onRuntimeMessage = (message, _sender, sendResponse) => {
     if (message?.type !== "request-playback-report") return;
     bind();
@@ -19,14 +19,25 @@
   chrome.runtime.onMessage.addListener(onRuntimeMessage);
   const onWindowMessage = (event) => {
     const data = event.data;
-    if (event.source !== window || event.origin !== location.origin || data?.type !== "lyrics-everywhere-youtube-chapters") return;
+    if (event.source !== window || event.origin !== location.origin || data?.type !== "lyrics-everywhere-youtube-page-data") return;
     if (!/^[A-Za-z0-9_-]{11}$/.test(data.videoId) || !Array.isArray(data.chapters)) return;
     const chapters = data.chapters.filter((chapter) =>
       Number.isSafeInteger(chapter?.startMs) && chapter.startMs >= 0 &&
       typeof chapter.title === "string" && chapter.title.trim() && chapter.title.length <= 500 &&
       (chapter.artist === undefined || (typeof chapter.artist === "string" && chapter.artist.length <= 200))
     ).sort((left, right) => left.startMs - right.startMs);
-    youtubeChapters = { videoId: data.videoId, chapters };
+    let musicCredits;
+    if (Array.isArray(data.musicCredits) && data.musicCredits.length <= 10) {
+      const valid = data.musicCredits.every((c) =>
+        typeof c?.title === "string" && typeof c?.artist === "string" &&
+        c.title.trim().length >= 1 && c.title.trim().length <= 120 &&
+        c.artist.trim().length >= 1 && c.artist.trim().length <= 120
+      );
+      if (valid) {
+        musicCredits = data.musicCredits.map((c) => ({ title: c.title.trim(), artist: c.artist.trim() }));
+      }
+    }
+    youtubePageData = { videoId: data.videoId, chapters, musicCredits };
   };
   window.addEventListener("message", onWindowMessage);
 
@@ -35,14 +46,14 @@
   }
 
   function currentChapter(id, positionMs) {
-    if (youtubeChapters.videoId !== id) return undefined;
+    if (youtubePageData.videoId !== id) return undefined;
     let current;
-    for (const chapter of youtubeChapters.chapters) {
+    for (const chapter of youtubePageData.chapters) {
       if (chapter.startMs > positionMs) break;
       current = chapter;
     }
-    if (!current || youtubeChapters.chapters.length < 2) return undefined;
-    const next = youtubeChapters.chapters.find((chapter) => chapter.startMs > current.startMs);
+    if (!current || youtubePageData.chapters.length < 2) return undefined;
+    const next = youtubePageData.chapters.find((chapter) => chapter.startMs > current.startMs);
     return {
       ...current,
       durationMs: next ? next.startMs - current.startMs : undefined,
@@ -142,6 +153,9 @@
     return chrome.runtime.sendMessage({ type: "playback-report", report: {
       version: 2, sessionId, appId: appId(), pageUrl: location.href, mediaId: id,
       ...(appId() === "youtube" ? { rawTitle: videoTitle.slice(0, 2000) } : {}),
+      ...(appId() === "youtube" && !chapter && youtubePageData.videoId === id && youtubePageData.musicCredits
+        ? { musicCredits: youtubePageData.musicCredits }
+        : {}),
       ...(mediaDurationMs > 0 ? { mediaDurationMs } : {}),
       artistVerified,
       ...(chapter ? { segmentStartMs: chapter.startMs } : {}),
