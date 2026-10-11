@@ -1,3 +1,4 @@
+import { toSimplifiedChinese } from "./chinese-script.js";
 import type { LrclibRecord } from "./lyrics.js";
 
 import type { TranscriptLine } from "./transcript-lines.js";
@@ -79,7 +80,7 @@ export function specialVideoKind(title: string): SpecialVideoKind | null {
 }
 
 export function normalizeTrackName(value: string): string {
-  return value.normalize("NFKC").toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+  return toSimplifiedChinese(value.normalize("NFKC")).toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
 }
 
 const VERSION_LABEL = /\b(?:live|cover|remix|acoustic|instrumental|karaoke|remaster(?:ed)?|demo|radio\s+edit|sped[\s-]*up|slowed|nightcore)\b|現場|现场|翻唱|伴奏|不插電|라이브|カバー/iu;
@@ -119,6 +120,84 @@ export function trackTitleVariants(value: string): string[] {
   const credit = core.match(/\s+(?:feat(?:uring)?(?:\.\s*|\s+)|ft(?:\.\s*|\s+))([^()[\]]+)$/iu);
   title = (credit && !VERSION_LABEL.test(credit[1]) ? core.slice(0, credit.index).trim() : core) + versionTail;
   return [...new Set(bilingualNameVariants(title.trim()).filter((name) => normalizeTrackName(name)))];
+}
+
+// Generic upload/program noise; removed only from search queries, never from the text used for verification.
+const TITLE_NOISE = /\b(?:official\s+(?:music\s+)?(?:video|audio|mv|lyric\s+video|visuali[sz]er)|music\s+video|lyrics?\s+video|lyrics?|m\/v|mv|4k|8k|hd|hq|uhd|1080p|720p|full\s+ver(?:sion|\.)?|ep\.?\s*\d+)\b|中字|中文字幕|繁中字幕|動態歌詞|动态歌词|歌詞版|歌词版|歌詞|歌词|純享版|纯享版|純享|纯享|完整版|高音質|高音质|官方版|首播|第[0-9一二三四五六七八九十百]+[期集]/giu;
+// Quote and book-title marks conventionally wrap a song title.
+const TITLE_QUOTED = /《([^《》]+)》|「([^「」]+)」|『([^『』]+)』|“([^“”]+)”|"([^"]+)"|(?:^|\s)['‘]([^'‘’]+)['’](?=\s|$)/gu;
+const TITLE_SEPARATOR = /[|｜《》「」『』【】〈〉\[\]()（）"“”:：]|(?:^|\s)['‘]|['’](?=\s|$)|\s(?:[-–—_~～/／x×]|feat(?:uring)?\.?|ft\.)\s/giu;
+const MAX_TITLE_QUERIES = 6;
+
+export function titleSearchQueries(rawTitle: string): string[] {
+  const title = rawTitle.normalize("NFKC");
+  if (VERSION_LABEL.test(title)) return [];
+  const cleaned = title.replace(TITLE_NOISE, " ");
+  const quoted = [...cleaned.matchAll(TITLE_QUOTED)].map((match) => match.slice(1).find((group) => group !== undefined) ?? "");
+  const seen = new Set<string>();
+  const segments = cleaned.split(TITLE_SEPARATOR)
+    .map((segment) => segment.replace(/\s+/gu, " ").trim())
+    .filter((segment) => {
+      const key = normalizeTrackName(segment);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  const candidates = [segments.join(" "), ...quoted.map((segment) => segment.replace(/\s+/gu, " ").trim()), ...segments];
+  const queries = new Set<string>();
+  for (const candidate of candidates) {
+    if (!normalizeTrackName(candidate)) continue;
+    const query = candidate.slice(0, 200);
+    queries.add(query);
+    const simplified = toSimplifiedChinese(query);
+    if (simplified !== query) queries.add(simplified);
+  }
+  return [...queries].slice(0, MAX_TITLE_QUERIES);
+}
+
+const CJK_SCRIPT = /[\p{Script=Han}\p{Script=Hangul}\p{Script=Hiragana}\p{Script=Katakana}]/u;
+
+// Lowercased Simplified words separated by single spaces, splitting Latin↔CJK boundaries ("Capper無人區" → "capper 无人区").
+function searchableWords(value: string): string {
+  return toSimplifiedChinese(value.normalize("NFKC")).toLocaleLowerCase()
+    .replace(/(?<=\p{Script=Latin})(?=[\p{Script=Han}\p{Script=Hangul}\p{Script=Hiragana}\p{Script=Katakana}])|(?<=[\p{Script=Han}\p{Script=Hangul}\p{Script=Hiragana}\p{Script=Katakana}])(?=\p{Script=Latin})/gu, " ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+}
+
+// Returns the compact key of `name` when `words` (from searchableWords) mentions it, else "".
+function mentionedKey(words: string, name: string): string {
+  const needle = searchableWords(name);
+  const compact = needle.replaceAll(" ", "");
+  if (compact.length < 2) return "";
+  if (CJK_SCRIPT.test(needle)) return words.replaceAll(" ", "").includes(compact) ? compact : "";
+  return ` ${words} `.includes(` ${needle} `) ? compact : "";
+}
+
+// LRCLIB lists collaborations as "A, B, C", "A、B" or "A & B"; any credited artist may be named in the title.
+function creditedArtistNames(value: string): string[] {
+  const name = value.normalize("NFKC").trim();
+  const parts = name.split(/\s*(?:[,、&])\s*/u).filter(Boolean);
+  return [...new Set([name, ...(parts.length > 1 ? parts : [])])].flatMap(bilingualNameVariants);
+}
+
+// Accept a record only when the video title itself names both its song and one credited artist; never trust upload channels.
+export function titleMentionedCandidates(records: LrclibRecord[], rawTitle: string): LrclibRecord[] {
+  if (VERSION_LABEL.test(rawTitle.normalize("NFKC"))) return [];
+  const words = searchableWords(rawTitle);
+  const matches: { record: LrclibRecord; titleKey: string }[] = [];
+  for (const record of records) {
+    if (!record.syncedLyrics || VERSION_LABEL.test(record.trackName)) continue;
+    const titleKey = trackTitleVariants(record.trackName)
+      .map((name) => mentionedKey(words, name))
+      .reduce((longest, key) => (key.length > longest.length ? key : longest), "");
+    if (!titleKey) continue;
+    const artistKeys = creditedArtistNames(record.artistName).map((name) => mentionedKey(words, name)).filter(Boolean);
+    if (artistKeys.length === 0 || artistKeys.includes(titleKey)) continue;
+    matches.push({ record, titleKey });
+  }
+  const longest = matches.filter(({ titleKey }) => !matches.some((other) => other.titleKey !== titleKey && other.titleKey.includes(titleKey)));
+  if (new Set(longest.map(({ titleKey }) => titleKey)).size > 1) return [];
+  return [...new Map(longest.map(({ record }) => [record.id, record])).values()];
 }
 
 function lyricsMatcher(title: string, artists: string[]): (record: LrclibRecord) => boolean {

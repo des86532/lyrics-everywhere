@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { exactSyncedCandidates, exactSyncedCandidatesForArtists, mixReplayWindow, playbackPositionAt, playbackTrackPositionAt, specialVideoKind, type PlaybackReport } from "../extension-ui/src/playback.js";
+import { exactSyncedCandidates, exactSyncedCandidatesForArtists, mixReplayWindow, playbackPositionAt, playbackTrackPositionAt, specialVideoKind, titleMentionedCandidates, titleSearchQueries, type PlaybackReport } from "../extension-ui/src/playback.js";
 
 const report = (values: Partial<PlaybackReport> = {}): PlaybackReport => ({
   version: 2,
@@ -125,5 +125,44 @@ describe("extension playback state", () => {
     expect(specialVideoKind("[MV] Loco(로꼬), GRAY _ Late Night")).toBeNull();
     expect(specialVideoKind("BIGBANG - 우리 사랑하지 말아요(LET'S NOT FALL IN LOVE) M/V")).toBeNull();
     expect(specialVideoKind("TAEYEON 태연 'I (feat. Verbal Jint)' MV")).toBeNull();
+  });
+});
+
+describe("video title keyword matching", () => {
+  const CAPPER = "純享：Capper《無人區玫瑰》粉色系rapper帶來浪漫可愛心動 | 少年說唱企劃 EP12 | iQiyi精选";
+  const rec = (id: number, trackName: string, artistName: string, duration?: number) => ({ id, trackName, artistName, duration, syncedLyrics: "[00:01]x" });
+  const ids = (records: { id: number }[]) => records.map((record) => record.id);
+
+  it("builds noise-free search segments in both Chinese scripts", () => {
+    const queries = titleSearchQueries(CAPPER);
+    expect(queries[0]).toContain("Capper");
+    expect(queries).toContain("无人区玫瑰");
+    expect(queries.indexOf("無人區玫瑰")).toBeLessThan(queries.indexOf("Capper"));
+    expect(queries.length).toBeLessThanOrEqual(6);
+    expect(queries.join("\n")).not.toMatch(/純享|EP12/u);
+  });
+
+  it("does not guess recordings for live or cover videos", () => {
+    expect(titleSearchQueries("Capper《無人區玫瑰》Live版")).toEqual([]);
+    expect(titleMentionedCandidates([rec(1, "无人区玫瑰", "Capper")], "Capper《無人區玫瑰》Live版")).toEqual([]);
+  });
+
+  it("requires the title to name both the song and a credited artist", () => {
+    const records = [
+      rec(38664232, "无人区玫瑰", "Capper, Apex, LEGGO", 216),
+      rec(2, "无人区玫瑰", "一颗狼星", 222),
+      rec(3, "无人区玫瑰 No man's land of Rose", "capper"),
+    ];
+    expect(ids(titleMentionedCandidates(records, CAPPER))).toEqual([38664232]);
+  });
+
+  it("prefers the longest mentioned title and rejects records whose artist field is the song title", () => {
+    expect(ids(titleMentionedCandidates([rec(1, "Love", "Taylor Swift"), rec(2, "Love Story", "Taylor Swift")], "Taylor Swift - Love Story"))).toEqual([2]);
+    expect(ids(titleMentionedCandidates([rec(1, "Love wins all", "Love wins all"), rec(2, "Love wins all", "IU (아이유)")], "IU 'Love wins all' 2024"))).toEqual([2]);
+  });
+
+  it("matches whole Latin words only and refuses titles naming two different songs", () => {
+    expect(titleMentionedCandidates([rec(1, "Song", "Rap")], "Rapper Song Story")).toEqual([]);
+    expect(titleMentionedCandidates([rec(1, "甲乙", "Singer A"), rec(2, "丙丁", "Singer A")], "Singer A《甲乙》與《丙丁》")).toEqual([]);
   });
 });

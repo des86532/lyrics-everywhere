@@ -1,6 +1,6 @@
 import type { SyncedLyrics } from "../../src/domain/types.js";
 import { parseLrcWithHash } from "../../src/lyrics/lrc-core.js";
-import { exactSyncedCandidatesForArtists, normalizeTrackName, trackTitleVariants } from "./playback.js";
+import { exactSyncedCandidatesForArtists, normalizeTrackName, titleMentionedCandidates, titleSearchQueries, trackTitleVariants } from "./playback.js";
 
 export interface LrclibRecord {
   id: number;
@@ -16,13 +16,20 @@ export class LyricsHttpError extends Error {
   }
 }
 
-export async function searchLyrics(trackName: string, artistName: string, fetcher: typeof fetch = fetch): Promise<LrclibRecord[]> {
-  const params = new URLSearchParams({ track_name: trackName.trim(), artist_name: artistName.trim() });
+async function fetchLrclibSearch(params: URLSearchParams, fetcher: typeof fetch): Promise<LrclibRecord[]> {
   const response = await fetcher(`https://lrclib.net/api/search?${params.toString()}`, { method: "GET", mode: "cors", headers: { Accept: "application/json" } });
   if (!response.ok) throw new LyricsHttpError(response.status);
   const records: unknown = await response.json();
   if (!Array.isArray(records)) throw new Error("LRCLIB 回傳格式無法辨識。");
   return records.filter(isLrclibRecord).filter((record) => Boolean(record.syncedLyrics));
+}
+
+export function searchLyrics(trackName: string, artistName: string, fetcher: typeof fetch = fetch): Promise<LrclibRecord[]> {
+  return fetchLrclibSearch(new URLSearchParams({ track_name: trackName.trim(), artist_name: artistName.trim() }), fetcher);
+}
+
+export function searchLyricsByKeyword(query: string, fetcher: typeof fetch = fetch): Promise<LrclibRecord[]> {
+  return fetchLrclibSearch(new URLSearchParams({ q: query.trim() }), fetcher);
 }
 
 export type LyricsSearchFailure = { artist: string; title: string; message: string };
@@ -35,24 +42,23 @@ function isTransient(error: unknown): boolean {
   return error instanceof LyricsHttpError && (error.status === 429 || error.status >= 500);
 }
 
-export async function searchLyricsForArtists(
-  title: string,
-  artists: string[],
-  fetcher: typeof fetch = fetch,
-  retryDelaysMs: readonly number[] = RETRY_DELAYS_MS,
-): Promise<{ recordsByArtist: LrclibRecord[][]; failures: LyricsSearchFailure[] }> {
-  const titles = trackTitleVariants(title);
-  const recordsByArtist = artists.map(() => [] as LrclibRecord[]);
+// `results[i]` answers `queries[i]` (empty when it failed); only AbortError is rethrown.
+async function runLrclibQueries<Q>(
+  queries: Q[],
+  search: (query: Q) => Promise<LrclibRecord[]>,
+  failureOf: (query: Q, message: string) => LyricsSearchFailure,
+  retryDelaysMs: readonly number[],
+): Promise<{ results: LrclibRecord[][]; failures: LyricsSearchFailure[]; successfulQueries: number }> {
+  const results = queries.map(() => [] as LrclibRecord[]);
   const failures: LyricsSearchFailure[] = [];
   let successfulQueries = 0;
-  const queries = artists.flatMap((artist, index) => titles.map((queryTitle) => ({ artist, index, queryTitle })));
   let nextQuery = 0;
   const runLane = async () => {
     while (nextQuery < queries.length) {
-      const { artist, index, queryTitle } = queries[nextQuery++];
+      const position = nextQuery++;
       for (let attempt = 0; ; attempt += 1) {
         try {
-          recordsByArtist[index].push(...await searchLyrics(queryTitle, artist, fetcher));
+          results[position] = await search(queries[position]);
           successfulQueries += 1;
           break;
         } catch (error) {
@@ -61,19 +67,48 @@ export async function searchLyricsForArtists(
             await new Promise((resolve) => setTimeout(resolve, retryDelaysMs[attempt]));
             continue;
           }
-          failures.push({ artist, title: queryTitle, message: error instanceof Error ? error.message : "LRCLIB 網路查詢失敗。" });
+          failures.push(failureOf(queries[position], error instanceof Error ? error.message : "LRCLIB 網路查詢失敗。"));
           break;
         }
       }
     }
   };
   await Promise.all(Array.from({ length: Math.min(MAX_PARALLEL_SEARCHES, queries.length) }, runLane));
+  return { results, failures, successfulQueries };
+}
+
+export async function searchLyricsForArtists(
+  title: string,
+  artists: string[],
+  fetcher: typeof fetch = fetch,
+  retryDelaysMs: readonly number[] = RETRY_DELAYS_MS,
+): Promise<{ recordsByArtist: LrclibRecord[][]; failures: LyricsSearchFailure[] }> {
+  const titles = trackTitleVariants(title);
+  const recordsByArtist = artists.map(() => [] as LrclibRecord[]);
+  const queries = artists.flatMap((artist, index) => titles.map((queryTitle) => ({ artist, index, queryTitle })));
+  const { results, failures, successfulQueries } = await runLrclibQueries(
+    queries,
+    ({ artist, queryTitle }) => searchLyrics(queryTitle, artist, fetcher),
+    ({ artist, queryTitle }, message) => ({ artist, title: queryTitle, message }),
+    retryDelaysMs,
+  );
   if (!successfulQueries && failures.length) throw new Error(`所有歌詞查詢均失敗：${failures[0].message}`);
+  queries.forEach(({ index }, position) => recordsByArtist[index].push(...results[position]));
   return { recordsByArtist, failures };
 }
 
 export function durationTolerance(durationMs: number): number {
   return Math.max(8_000, Math.min(20_000, durationMs * 0.06));
+}
+
+function withinDurationTolerance(records: LrclibRecord[], durationMs: number): LrclibRecord[] {
+  const tolerance = durationTolerance(durationMs);
+  return records.filter(
+    (record) =>
+      typeof record.duration === "number" &&
+      Number.isFinite(record.duration) &&
+      Math.abs(record.duration * 1000 - durationMs) <= tolerance,
+  );
 }
 
 export async function searchLyricsForIdentity(
@@ -108,15 +143,33 @@ export async function searchLyricsForIdentity(
     throw new Error(`所有歌詞查詢均失敗：${failures[0].message}`);
   }
 
-  const tolerance = durationTolerance(durationMs);
-  const candidates = [...candidatesById.values()].filter(
-    (record) =>
-      typeof record.duration === "number" &&
-      Number.isFinite(record.duration) &&
-      Math.abs(record.duration * 1000 - durationMs) <= tolerance,
-  );
+  return { candidates: withinDurationTolerance([...candidatesById.values()], durationMs), failures };
+}
 
-  return { candidates, failures };
+export async function searchLyricsByVideoTitle(
+  rawTitle: string,
+  durationMs: number,
+  fetcher: typeof fetch = fetch,
+  retryDelaysMs: readonly number[] = RETRY_DELAYS_MS,
+): Promise<{ candidates: LrclibRecord[]; failures: LyricsSearchFailure[] }> {
+  const queries = titleSearchQueries(rawTitle);
+  const recordsById = new Map<number, LrclibRecord>();
+  const failures: LyricsSearchFailure[] = [];
+  // The whole-title queries rarely hit; only spend the per-segment queries when they find nothing.
+  for (const batch of [queries.slice(0, 2), queries.slice(2)]) {
+    if (batch.length === 0) continue;
+    const result = await runLrclibQueries(
+      batch,
+      (query) => searchLyricsByKeyword(query, fetcher),
+      (query, message) => ({ artist: "影片標題", title: query, message }),
+      retryDelaysMs,
+    );
+    failures.push(...result.failures);
+    for (const record of result.results.flat()) recordsById.set(record.id, record);
+    const candidates = withinDurationTolerance(titleMentionedCandidates([...recordsById.values()], rawTitle), durationMs);
+    if (candidates.length > 0) return { candidates, failures };
+  }
+  return { candidates: [], failures };
 }
 
 export async function parseRecordLyrics(record: LrclibRecord, trackKey: string): Promise<SyncedLyrics> {

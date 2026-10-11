@@ -15,6 +15,7 @@
   "dependencies": {
     "@huggingface/transformers": "^3.7.2",
     "@sglkc/kuromoji": "1.1.0",
+    "opencc-js": "1.4.2",
     "wanakana": "5.3.1"
   },
   "devDependencies": {

@@ -43,6 +43,7 @@ function kuromojiAssets(): Plugin {
         "kuromoji-LICENSE-2.0.txt",
         "kuromoji-NOTICE.md",
         "wanakana-LICENSE",
+        "opencc-js-LICENSE",
       ]) {
         this.emitFile({
           type: "asset",

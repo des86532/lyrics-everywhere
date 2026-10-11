@@ -6,7 +6,7 @@ import { TranscriberRegistry } from "../../src/pronunciation/transcriber-registr
 import type { PhoneticSystem } from "../../src/domain/types.js";
 import { TranscriptLines, type TranscriptLine, type TimestampedChunk } from "./transcript-lines.js";
 import type { SyncedLyrics } from "../../src/domain/types.js";
-import { searchLyricsForArtists, searchLyricsForIdentity, selectAutomaticLyrics, type LrclibRecord } from "./lyrics.js";
+import { searchLyricsByVideoTitle, searchLyricsForArtists, searchLyricsForIdentity, selectAutomaticLyrics, type LrclibRecord } from "./lyrics.js";
 import { fetchYouTubeMusicCredit, type YouTubeMusicCredit } from "./youtube-music-credit.js";
 import { exactSyncedCandidatesForArtists, lyricWindowStart, LYRICS_WINDOW_SIZE, mixReplayWindow, playbackPositionAt, playbackTrackPositionAt, specialVideoKind, type PlaybackReport, type SpecialVideoKind } from "./playback.js";
 import { formatLyricOffset, isValidLyricOffset, lyricPositionForVideo, parseLyricOffset } from "./lyric-timing.js";
@@ -121,7 +121,7 @@ let geminiKeyReadGeneration = 0;
 let geminiKeySaving = false;
 let geminiSettingsReady = false;
 let singleLookupController: AbortController | null = null;
-let resolvedTrack: { title: string; artists: string[]; source: "youtube-credit" | "ai" } | null = null;
+let resolvedTrack: { title: string; artists: string[]; source: "youtube-credit" | "title-match" | "ai" } | null = null;
 const songResolutionCache = new Map<string, SongIdentity | null>();
 const youtubeCreditCache = new Map<string, YouTubeMusicCredit | null>();
 const AI_REJECTED_STORAGE_KEY = "aiRejectedVideoIds";
@@ -1347,64 +1347,85 @@ async function lookupSingleLyrics(report: PlaybackReport, operationGeneration: n
       }
     }
 
+    const canGuessFromTitle = !selection && report.appId === "youtube" && report.segmentStartMs === undefined && report.durationMs > 0;
+    const guessRejected = canGuessFromTitle && aiRejectedVideoIds.includes(report.mediaId);
+    if (guessRejected) {
+      aiMatchRejectButton.textContent = "恢復自動比對";
+      aiMatchRejectButton.hidden = false;
+      setAiLookupStatus("你已停用這支影片的標題比對與 AI 比對。");
+    }
+
+    if (canGuessFromTitle && !guessRejected) {
+      const { candidates, failures } = await searchLyricsByVideoTitle(report.rawTitle ?? report.title, report.durationMs, lyricsFetcher);
+      if (!isCurrent()) return;
+      if (failures.length) {
+        lyricsQueryStatus.textContent = `部分歌詞查詢失敗（${failures.length} 次）：${failures[0].artist} — ${failures[0].message} 已保留成功結果。`;
+        lyricsQueryStatus.hidden = false;
+        failuresCount = failures.length;
+      }
+      exactCandidatesCount = candidates.length;
+      selection = await selectAutomaticLyrics(candidates, [], report.durationMs);
+      if (!isCurrent()) return;
+      if (selection) {
+        resolvedTrack = { title: selection.record.trackName, artists: [selection.record.artistName], source: "title-match" };
+        displayPlaybackSource(report);
+        setAiLookupStatus(`依影片標題比對到「${selection.record.trackName}」— ${selection.record.artistName}（LRCLIB ${selection.record.id}）；若不是這首，請按「不是這首」。`);
+      }
+    }
+
     const canAttemptAi =
       !selection &&
+      !guessRejected &&
       Boolean(requestKey) &&
       report.appId === "youtube" &&
       report.segmentStartMs === undefined &&
       report.durationMs > 0;
 
     if (canAttemptAi) {
-      if (aiRejectedVideoIds.includes(report.mediaId)) {
-        aiMatchRejectButton.textContent = "恢復 AI 比對";
-        aiMatchRejectButton.hidden = false;
-        setAiLookupStatus("你已停用這支影片的 AI 比對。");
-      } else {
-        const rawTitle = report.rawTitle ?? report.title;
-        const channel = report.artistVerified ? "" : (report.artists[0] ?? "");
-        const cacheKey = JSON.stringify([report.mediaId, rawTitle, report.durationMs]);
-        let identity: SongIdentity | null = null;
-        let identityError = false;
-        try {
-          if (songResolutionCache.has(cacheKey)) {
-            identity = songResolutionCache.get(cacheKey) ?? null;
-          } else {
-            setAiLookupStatus("LRCLIB 沒有同名歌詞；正在用你自己的 Gemini 額度（含 Google 搜尋）查詢正式曲名…");
-            identity = await identifySong({ rawTitle, channel, durationMs: report.durationMs }, requestKey, { signal: controller.signal });
-            if (!isCurrent()) return;
-            if (songResolutionCache.size >= 50) songResolutionCache.delete(songResolutionCache.keys().next().value!);
-            songResolutionCache.set(cacheKey, identity);
-          }
-        } catch (error) {
+      const rawTitle = report.rawTitle ?? report.title;
+      const channel = report.artistVerified ? "" : (report.artists[0] ?? "");
+      const cacheKey = JSON.stringify([report.mediaId, rawTitle, report.durationMs]);
+      let identity: SongIdentity | null = null;
+      let identityError = false;
+      try {
+        if (songResolutionCache.has(cacheKey)) {
+          identity = songResolutionCache.get(cacheKey) ?? null;
+        } else {
+          setAiLookupStatus("LRCLIB 沒有同名歌詞；正在用你自己的 Gemini 額度（含 Google 搜尋）查詢正式曲名…");
+          identity = await identifySong({ rawTitle, channel, durationMs: report.durationMs }, requestKey, { signal: controller.signal });
           if (!isCurrent()) return;
-          identityError = true;
-          const message = error instanceof Error ? error.message : "AI 曲目解析失敗。";
-          setAiLookupStatus(`${message} 未套用 AI 結果。`);
+          if (songResolutionCache.size >= 50) songResolutionCache.delete(songResolutionCache.keys().next().value!);
+          songResolutionCache.set(cacheKey, identity);
         }
+      } catch (error) {
         if (!isCurrent()) return;
+        identityError = true;
+        const message = error instanceof Error ? error.message : "AI 曲目解析失敗。";
+        setAiLookupStatus(`${message} 未套用 AI 結果。`);
+      }
+      if (!isCurrent()) return;
 
-        if (identity) {
-          const { candidates, failures } = await searchLyricsForIdentity(identity, report.durationMs, lyricsFetcher);
-          if (!isCurrent()) return;
-          if (failures.length) {
-            lyricsQueryStatus.textContent = `部分歌詞查詢失敗（${failures.length} 次）：${failures[0].artist} — ${failures[0].message} 已保留成功結果。`;
-            lyricsQueryStatus.hidden = false;
-            failuresCount = failures.length;
-          }
-          exactCandidatesCount = candidates.length;
-          const aiSelection = await selectAutomaticLyrics(candidates, identity.artists, report.durationMs);
-          if (!isCurrent()) return;
-          if (aiSelection) {
-            selection = aiSelection;
-            resolvedTrack = { title: selection.record.trackName, artists: [selection.record.artistName], source: "ai" };
-            displayPlaybackSource(report);
-            setAiLookupStatus(`AI 經 Google 搜尋將這支影片對應為「${selection.record.trackName}」— ${selection.record.artistName}（LRCLIB ${selection.record.id}）；若不是這首，請按「不是這首」。`);
-          } else {
-            setAiLookupStatus(`AI 查到正式曲名「${identity.titles.join("／")}」，但 LRCLIB 沒有片長相符的同步歌詞。`);
-          }
-        } else if (!identityError) {
-          setAiLookupStatus("AI 未能確認這支影片對應的單一正式曲目；未套用歌詞。");
+      if (identity) {
+        const { candidates, failures } = await searchLyricsForIdentity(identity, report.durationMs, lyricsFetcher);
+        if (!isCurrent()) return;
+        if (failures.length) {
+          lyricsQueryStatus.textContent = `部分歌詞查詢失敗（${failures.length} 次）：${failures[0].artist} — ${failures[0].message} 已保留成功結果。`;
+          lyricsQueryStatus.hidden = false;
+          failuresCount = failures.length;
         }
+        exactCandidatesCount = candidates.length;
+        const aiSelection = await selectAutomaticLyrics(candidates, identity.artists, report.durationMs);
+        if (!isCurrent()) return;
+        if (aiSelection) {
+          selection = aiSelection;
+          resolvedTrack = { title: selection.record.trackName, artists: [selection.record.artistName], source: "ai" };
+          displayPlaybackSource(report);
+          setAiLookupStatus(`AI 經 Google 搜尋將這支影片對應為「${selection.record.trackName}」— ${selection.record.artistName}（LRCLIB ${selection.record.id}）；若不是這首，請按「不是這首」。`);
+        } else {
+          setAiLookupStatus(`AI 查到正式曲名「${identity.titles.join("／")}」，但 LRCLIB 沒有片長相符的同步歌詞。`);
+        }
+      } else if (!identityError) {
+        setAiLookupStatus("AI 未能確認這支影片對應的單一正式曲目；未套用歌詞。");
       }
     }
 
@@ -1440,8 +1461,8 @@ async function lookupSingleLyrics(report: PlaybackReport, operationGeneration: n
     lyricsMode = true;
     stopButton.disabled = false;
     const automaticVersion = selection.recordCount > 1;
-    modeBadge.textContent = `${resolvedTrack?.source === "ai" ? "AI 曲名 · " : resolvedTrack?.source === "youtube-credit" ? "YouTube 曲目資訊 · " : ""}${automaticVersion ? "自動選版同步歌詞" : "單曲同步歌詞"}`;
-    if (resolvedTrack?.source === "ai") {
+    modeBadge.textContent = `${resolvedTrack?.source === "ai" ? "AI 曲名 · " : resolvedTrack?.source === "title-match" ? "標題比對 · " : resolvedTrack?.source === "youtube-credit" ? "YouTube 曲目資訊 · " : ""}${automaticVersion ? "自動選版同步歌詞" : "單曲同步歌詞"}`;
+    if (resolvedTrack?.source === "ai" || resolvedTrack?.source === "title-match") {
       aiMatchRejectButton.textContent = "不是這首";
       aiMatchRejectButton.hidden = false;
     }
@@ -1784,7 +1805,7 @@ originalToggle.addEventListener("change", () => {
 aiMatchRejectButton.addEventListener("click", () => {
   const mediaId = playbackReport?.mediaId;
   if (!mediaId) return;
-  if (aiMatchRejectButton.textContent === "恢復 AI 比對") {
+  if (aiMatchRejectButton.textContent === "恢復自動比對") {
     aiRejectedVideoIds = aiRejectedVideoIds.filter((id) => id !== mediaId);
     persistAiRejections();
     void startSingleDetection();
