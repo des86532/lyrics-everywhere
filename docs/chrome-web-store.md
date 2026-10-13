@@ -86,7 +86,7 @@
   - [x] 我保證不會將使用者資料用於或轉移至與核心功能無關的目的。
   - [x] 我保證不會將使用者資料用於信用評估或貸款核准目的。
 - **隱私權政策網址（Privacy Policy URL）：**
-  - 請填入 Cloudflare Pages 部署之首頁網址（例如 `https://<your-project>.pages.dev/`）。
+  - 填入 GitHub Pages 網址：`https://des86532.github.io/lyrics-everywhere/`（需先在 repo Settings → Pages 將 Source 設為「GitHub Actions」，並合併後等 `Deploy privacy policy site` 工作流程成功）。
 
 ---
 
