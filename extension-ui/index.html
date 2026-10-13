@@ -14,6 +14,7 @@
         <div class="masthead-actions">
           <button id="single-mode" class="button button-quiet" type="button" aria-label="重新偵測播放來源">重新偵測</button>
           <button id="pin-source" class="button button-quiet" type="button" aria-pressed="false" disabled>固定此分頁</button>
+          <button id="open-settings" class="button button-quiet" type="button" aria-label="設定與工具" aria-haspopup="dialog">設定</button>
           <button id="stop-capture" class="button button-stop" type="button" disabled>停止</button>
         </div>
       </header>
@@ -39,70 +40,80 @@
         <p id="japanese-reading-status" class="fine-print" role="status" aria-live="polite" hidden></p>
         <progress id="model-progress" max="100" value="0" aria-label="模型下載進度" hidden></progress>
       </section>
-      <p id="preferences-status" class="fine-print persistent-error" role="status" aria-live="polite"></p>
-      <nav class="drawer" aria-label="設定與工具">
-      <details id="lyric-timing-editor" class="disclosure lyric-timing" name="drawer" hidden>
-        <summary>校正歌詞時間</summary>
-        <div class="disclosure-content">
-          <p class="fine-print">輸入要加到所有歌詞時間上的偏移，例如 5 或 1:05.3；負值（例如 -2.5）讓歌詞提前。只套用於這支影片與此歌詞版本。</p>
-          <label for="lyric-timing-offset">歌詞時間偏移</label>
-          <input id="lyric-timing-offset" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" maxlength="16" placeholder="例如 5、-2.5 或 1:05.3" disabled />
-          <div class="lyric-timing-actions">
-            <button id="lyric-timing-apply" class="button button-secondary" type="button" disabled>套用偏移</button>
-            <button id="lyric-timing-clear" class="button button-secondary" type="button" disabled>清除這支影片校時</button>
+      <dialog id="settings-dialog" class="settings-modal" aria-labelledby="settings-dialog-title">
+        <div class="settings-modal-card">
+          <div class="settings-modal-header">
+            <h2 id="settings-dialog-title" class="settings-modal-title">設定與工具</h2>
+            <button id="close-settings" class="button button-quiet settings-modal-close" type="button" aria-label="關閉設定">✕</button>
           </div>
-          <p id="lyric-timing-feedback" class="fine-print" role="status" aria-live="polite"></p>
-        </div>
-      </details>
-      <details class="disclosure preferences" name="drawer">
-        <summary>顯示設定</summary>
-        <div class="disclosure-content">
-          <label for="phonetic-system">空耳顯示方式</label>
-          <select id="phonetic-system" disabled><option value="chinese">中文近音字</option><option value="latin">羅馬拼音</option></select>
-          <fieldset id="preserved-languages" disabled>
-            <legend>保留原文語言</legend>
-            <label class="check-label"><input type="checkbox" value="zh" /> 中文</label>
-            <label class="check-label"><input type="checkbox" value="en" /> 英文</label>
-            <label class="check-label"><input type="checkbox" value="ja" /> 日文</label>
-            <label class="check-label"><input type="checkbox" value="ko" /> 韓文</label>
-          </fieldset>
-          <label class="check-label"><input id="show-original" type="checkbox" checked /> 同時顯示辨識原文</label>
-          <p class="fine-print">日文含假名的詞會使用本機讀音字典；純漢字無法安全區分中文與日文，會保留原文。空耳與原文分別顯示。</p>
-        </div>
-      </details>
-      <details id="manual-lyrics" class="disclosure manual-lyrics" name="drawer">
-        <summary>手動指定歌詞 <span id="manual-lyrics-mode">自動比對</span></summary>
-        <div class="disclosure-content">
-          <p class="fine-print">自動比對找不到或找錯時，可自己指定這支 YouTube 影片的同步歌詞；指定結果只存在此瀏覽器。</p>
-          <div class="manual-lyrics-actions">
-            <a id="open-lrclib-search" class="button button-secondary" href="https://lrclib.net/" target="_blank" rel="noopener noreferrer">到 LRCLIB 搜尋</a>
-            <button id="copy-ai-prompt" class="button button-secondary" type="button" disabled>複製 AI 提示詞</button>
+          <div class="settings-modal-body">
+            <p id="preferences-status" class="fine-print persistent-error" role="status" aria-live="polite"></p>
+            <nav class="drawer" aria-label="設定與工具">
+              <details id="lyric-timing-editor" class="disclosure lyric-timing" name="drawer" hidden>
+                <summary>校正歌詞時間</summary>
+                <div class="disclosure-content">
+                  <p class="fine-print">輸入要加到所有歌詞時間上的偏移，例如 5 或 1:05.3；負值（例如 -2.5）讓歌詞提前。只套用於這支影片與此歌詞版本。</p>
+                  <label for="lyric-timing-offset">歌詞時間偏移</label>
+                  <input id="lyric-timing-offset" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" maxlength="16" placeholder="例如 5、-2.5 或 1:05.3" disabled />
+                  <div class="lyric-timing-actions">
+                    <button id="lyric-timing-apply" class="button button-secondary" type="button" disabled>套用偏移</button>
+                    <button id="lyric-timing-clear" class="button button-secondary" type="button" disabled>清除這支影片校時</button>
+                  </div>
+                  <p id="lyric-timing-feedback" class="fine-print" role="status" aria-live="polite"></p>
+                </div>
+              </details>
+              <details class="disclosure preferences" name="drawer">
+                <summary>顯示設定</summary>
+                <div class="disclosure-content">
+                  <label for="phonetic-system">空耳顯示方式</label>
+                  <select id="phonetic-system" disabled><option value="chinese">中文近音字</option><option value="latin">羅馬拼音</option></select>
+                  <fieldset id="preserved-languages" disabled>
+                    <legend>保留原文語言</legend>
+                    <label class="check-label"><input type="checkbox" value="zh" /> 中文</label>
+                    <label class="check-label"><input type="checkbox" value="en" /> 英文</label>
+                    <label class="check-label"><input type="checkbox" value="ja" /> 日文</label>
+                    <label class="check-label"><input type="checkbox" value="ko" /> 韓文</label>
+                  </fieldset>
+                  <label class="check-label"><input id="show-original" type="checkbox" checked /> 同時顯示辨識原文</label>
+                  <p class="fine-print">日文含假名的詞會使用本機讀音字典；純漢字無法安全區分中文與日文，會保留原文。空耳與原文分別顯示。</p>
+                </div>
+              </details>
+              <details id="manual-lyrics" class="disclosure manual-lyrics" name="drawer">
+                <summary>手動指定歌詞 <span id="manual-lyrics-mode">自動比對</span></summary>
+                <div class="disclosure-content">
+                  <p class="fine-print">自動比對找不到或找錯時，可自己指定這支 YouTube 影片的同步歌詞；指定結果只存在此瀏覽器。</p>
+                  <div class="manual-lyrics-actions">
+                    <a id="open-lrclib-search" class="button button-secondary" href="https://lrclib.net/" target="_blank" rel="noopener noreferrer">到 LRCLIB 搜尋</a>
+                    <button id="copy-ai-prompt" class="button button-secondary" type="button" disabled>複製 AI 提示詞</button>
+                  </div>
+                  <label for="manual-lyrics-input">貼上 LRCLIB 歌曲連結，或 AI 回覆的歌名／歌手</label>
+                  <textarea id="manual-lyrics-input" rows="3" maxlength="2000" spellcheck="false" disabled placeholder="https://lrclib.net/tracks/38664232&#10;或&#10;歌名：无人区玫瑰&#10;歌手：Capper"></textarea>
+                  <div class="manual-lyrics-actions">
+                    <button id="apply-manual-lyrics" class="button button-secondary" type="button" disabled>套用</button>
+                    <button id="clear-manual-lyrics" class="button button-secondary" type="button" hidden>清除這支影片的指定</button>
+                  </div>
+                  <p id="manual-lyrics-status" class="fine-print" role="status" aria-live="polite"></p>
+                </div>
+              </details>
+              <details class="disclosure source-details" name="drawer">
+                <summary>播放來源與說明 <span id="source-mode" class="source-mode">自動跟隨播放頁</span></summary>
+                <div class="disclosure-content">
+                  <label for="source-tab">播放分頁</label>
+                  <div class="source-row">
+                    <select id="source-tab" disabled><option value="auto">自動：跟隨最近切到的播放頁</option></select>
+                    <button id="refresh-source-tabs" class="button button-secondary" type="button" aria-label="更新可選播放分頁">更新</button>
+                  </div>
+                  <p id="source-selection-status" class="fine-print" role="status" aria-live="polite"></p>
+                  <p id="playback-source" class="fine-print" role="status" aria-live="polite">尚未讀取播放來源。</p>
+                  <p id="lyrics-status" class="fine-print" role="status" aria-live="polite"></p>
+                  <p class="fine-print">歌曲只向 LRCLIB 查詢，不會把影片資料傳給 AI 服務。合輯音訊只在本機辨識，字幕文字與時間戳保存在本機。</p>
+                  <p class="fine-print">歌詞並非官方版本；自動辨識可能有誤。</p>
+                </div>
+              </details>
+            </nav>
           </div>
-          <label for="manual-lyrics-input">貼上 LRCLIB 歌曲連結，或 AI 回覆的歌名／歌手</label>
-          <textarea id="manual-lyrics-input" rows="3" maxlength="2000" spellcheck="false" disabled placeholder="https://lrclib.net/tracks/38664232&#10;或&#10;歌名：无人区玫瑰&#10;歌手：Capper"></textarea>
-          <div class="manual-lyrics-actions">
-            <button id="apply-manual-lyrics" class="button button-secondary" type="button" disabled>套用</button>
-            <button id="clear-manual-lyrics" class="button button-secondary" type="button" hidden>清除這支影片的指定</button>
-          </div>
-          <p id="manual-lyrics-status" class="fine-print" role="status" aria-live="polite"></p>
         </div>
-      </details>
-      <details class="disclosure source-details" name="drawer">
-        <summary>播放來源與說明 <span id="source-mode" class="source-mode">自動跟隨播放頁</span></summary>
-        <div class="disclosure-content">
-          <label for="source-tab">播放分頁</label>
-          <div class="source-row">
-            <select id="source-tab" disabled><option value="auto">自動：跟隨最近切到的播放頁</option></select>
-            <button id="refresh-source-tabs" class="button button-secondary" type="button" aria-label="更新可選播放分頁">更新</button>
-          </div>
-          <p id="source-selection-status" class="fine-print" role="status" aria-live="polite"></p>
-          <p id="playback-source" class="fine-print" role="status" aria-live="polite">尚未讀取播放來源。</p>
-          <p id="lyrics-status" class="fine-print" role="status" aria-live="polite"></p>
-          <p class="fine-print">歌曲只向 LRCLIB 查詢，不會把影片資料傳給 AI 服務。合輯音訊只在本機辨識，字幕文字與時間戳保存在本機。</p>
-          <p class="fine-print">歌詞並非官方版本；自動辨識可能有誤。</p>
-        </div>
-      </details>
-      </nav>
+      </dialog>
     </main>
     <script type="module" src="./src/main.ts"></script>
   </body>

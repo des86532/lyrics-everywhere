@@ -113,6 +113,9 @@ const titleElement = element<HTMLHeadingElement>("transcript-title");
 const sourceSelect = element<HTMLSelectElement>("source-tab");
 const sourceRefreshButton = element<HTMLButtonElement>("refresh-source-tabs");
 const pinSourceButton = element<HTMLButtonElement>("pin-source");
+const openSettingsButton = element<HTMLButtonElement>("open-settings");
+const closeSettingsButton = element<HTMLButtonElement>("close-settings");
+const settingsDialog = element<HTMLDialogElement>("settings-dialog");
 const sourceSelectionStatus = element<HTMLParagraphElement>("source-selection-status");
 const sourceModeText = element<HTMLSpanElement>("source-mode");
 const captionHelp = element<HTMLParagraphElement>("caption-help");
@@ -1829,6 +1832,17 @@ clearManualLyricsButton.addEventListener("click", () => {
   persistManualSelections();
   renderManualLyricsControls();
   void startSingleDetection();
+});
+openSettingsButton.addEventListener("click", () => {
+  settingsDialog.showModal();
+});
+closeSettingsButton.addEventListener("click", () => {
+  settingsDialog.close();
+});
+settingsDialog.addEventListener("click", (event) => {
+  if (event.target === settingsDialog) {
+    settingsDialog.close();
+  }
 });
 void Promise.all([initializeDisplayPreferences(), initializeManualSelections(), initializeLyricTimingCorrections(), initializeAiRejections()]).then(() => {
   void refreshSourceTabs();
