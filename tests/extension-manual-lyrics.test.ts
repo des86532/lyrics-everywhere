@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { manualLyricsPrompt, parseManualLyricsInput, parseManualSelections } from "../extension-ui/src/manual-lyrics.js";
-
+import { extractLyricSnippet, formatDuration, manualLyricsPrompt, parseManualLyricsInput, parseManualSelections, rankCandidateRecords } from "../extension-ui/src/manual-lyrics.js";
 describe("manual lyrics input", () => {
   it("accepts LRCLIB links and bare ids", () => {
     const expected = { kind: "lrclib-id", id: 38664232 };
@@ -43,5 +42,42 @@ describe("manual selection storage", () => {
     expect(parsed.size).toBe(200);
     expect(parsed.has(id(0))).toBe(false);
     expect(parsed.get(id(200))).toBe(201);
+  });
+});
+
+describe("candidate lyrics version utilities", () => {
+  it("extracts a clean two-line snippet without timestamp tags", () => {
+    const synced = "[00:07.54] ごめんごめんねって\n[00:10.24] Baby もう言わないで\n[00:13.69] 情熱に染まる";
+    expect(extractLyricSnippet(synced)).toBe("ごめんごめんねって / Baby もう言わないで");
+
+    const wordSynced = "[00:01.00]<00:01.00>보고<00:01.50>싶다\n[00:03.00]너를";
+    expect(extractLyricSnippet(wordSynced)).toBe("보고싶다 / 너를");
+
+    expect(extractLyricSnippet("")).toBe("");
+    expect(extractLyricSnippet(undefined)).toBe("");
+  });
+
+  it("formats seconds as m:ss", () => {
+    expect(formatDuration(275.7)).toBe("4:36");
+    expect(formatDuration(230)).toBe("3:50");
+    expect(formatDuration(65)).toBe("1:05");
+    expect(formatDuration(0)).toBe("0:00");
+    expect(formatDuration(undefined)).toBe("--:--");
+    expect(formatDuration(-5)).toBe("--:--");
+  });
+
+  it("ranks candidates placing active ID first and sorting remainder by duration closeness", () => {
+    const records = [
+      { id: 1, trackName: "Song (JP)", artistName: "Singer", duration: 276, syncedLyrics: "[00:01]JP" },
+      { id: 2, trackName: "Song (KR)", artistName: "Singer", duration: 230, syncedLyrics: "[00:01]KR" },
+      { id: 3, trackName: "Song (Live)", artistName: "Singer", duration: 300, syncedLyrics: "[00:01]Live" },
+      { id: 4, trackName: "Untimed", artistName: "Singer", duration: 275 }, // no syncedLyrics
+      { id: 1, trackName: "Song (JP Duplicate)", artistName: "Singer", duration: 276, syncedLyrics: "[00:01]JP" },
+    ];
+
+    // Target duration 275s (275000ms), activeId = 2
+    const ranked = rankCandidateRecords(records, 2, 275000);
+    expect(ranked.map((r) => r.id)).toEqual([2, 1, 3]);
+    expect(ranked).toHaveLength(3);
   });
 });

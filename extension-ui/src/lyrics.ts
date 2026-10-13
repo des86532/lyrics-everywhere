@@ -6,6 +6,7 @@ export interface LrclibRecord {
   id: number;
   trackName: string;
   artistName: string;
+  albumName?: string;
   duration?: number;
   syncedLyrics?: string;
 }
@@ -139,7 +140,7 @@ export async function searchLyricsForIdentity(
   durationMs: number,
   fetcher: typeof fetch = fetch,
   retryDelaysMs: readonly number[] = RETRY_DELAYS_MS,
-): Promise<{ candidates: LrclibRecord[]; failures: LyricsSearchFailure[] }> {
+): Promise<{ candidates: LrclibRecord[]; allCandidates: LrclibRecord[]; failures: LyricsSearchFailure[] }> {
   const seenTitles = new Set<string>();
   const candidatesById = new Map<number, LrclibRecord>();
   const failures: LyricsSearchFailure[] = [];
@@ -166,7 +167,8 @@ export async function searchLyricsForIdentity(
     throw new Error(`所有歌詞查詢均失敗：${failures[0].message}`);
   }
 
-  return { candidates: withinDurationTolerance([...candidatesById.values()], durationMs), failures };
+  const allCandidates = [...candidatesById.values()];
+  return { candidates: withinDurationTolerance(allCandidates, durationMs), allCandidates, failures };
 }
 
 export async function searchLyricsByVideoTitle(
@@ -174,7 +176,7 @@ export async function searchLyricsByVideoTitle(
   durationMs: number,
   fetcher: typeof fetch = fetch,
   retryDelaysMs: readonly number[] = RETRY_DELAYS_MS,
-): Promise<{ candidates: LrclibRecord[]; failures: LyricsSearchFailure[] }> {
+): Promise<{ candidates: LrclibRecord[]; allCandidates: LrclibRecord[]; failures: LyricsSearchFailure[] }> {
   const queries = titleSearchQueries(rawTitle);
   const recordsById = new Map<number, LrclibRecord>();
   const failures: LyricsSearchFailure[] = [];
@@ -189,10 +191,13 @@ export async function searchLyricsByVideoTitle(
     );
     failures.push(...result.failures);
     for (const record of result.results.flat()) recordsById.set(record.id, record);
-    const candidates = withinDurationTolerance(titleMentionedCandidates([...recordsById.values()], rawTitle), durationMs);
-    if (candidates.length > 0) return { candidates, failures };
+    const mentioned = titleMentionedCandidates([...recordsById.values()], rawTitle);
+    const candidates = withinDurationTolerance(mentioned, durationMs);
+    const allCandidates = mentioned.length > 0 ? mentioned : [...recordsById.values()].filter((record) => Boolean(record.syncedLyrics));
+    if (candidates.length > 0) return { candidates, allCandidates, failures };
   }
-  return { candidates: [], failures };
+  const allSynced = [...recordsById.values()].filter((record) => Boolean(record.syncedLyrics));
+  return { candidates: [], allCandidates: allSynced, failures };
 }
 
 export async function parseRecordLyrics(record: LrclibRecord, trackKey: string): Promise<SyncedLyrics> {

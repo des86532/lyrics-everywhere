@@ -196,6 +196,17 @@ describe("browser lyrics helpers", () => {
     expect(candidates.map((candidate) => candidate.id)).toEqual([38664232]);
   });
 
+  it("returns allCandidates including versions outside duration tolerance for user selection", async () => {
+    const records = [
+      { ...record("[00:01]MV ver"), id: 101, duration: 275 },
+      { ...record("[00:01]Album ver"), id: 102, duration: 230 },
+    ];
+    const fetcher: typeof fetch = async () => new Response(JSON.stringify(records), { status: 200 });
+    const result = await searchLyricsForIdentity({ titles: ["Haru Haru"], artists: ["BIGBANG"] }, 275000, fetcher, [0]);
+    expect(result.candidates.map((c) => c.id)).toEqual([101]);
+    expect(result.allCandidates.map((c) => c.id)).toEqual([101, 102]);
+  });
+
   it("times out LRCLIB requests with custom error and preserves AbortError for external cancellation", async () => {
     vi.stubGlobal("fetch", (_i: unknown, init: { signal: AbortSignal }) => {
       const { promise, reject } = Promise.withResolvers<Response>();
