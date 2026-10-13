@@ -142,6 +142,7 @@ let resolvedTrack: { title: string; artists: string[]; source: "youtube-credit" 
 const AI_REJECTED_STORAGE_KEY = "aiRejectedVideoIds";
 let aiRejectedVideoIds: string[] = [];
 let availableCandidates: LrclibRecord[] = [];
+let availableCandidatesMediaId: string | null = null;
 let currentLyricsRecordId: number | undefined;
 type PlaybackTab = { tabId: number; title: string; appId: PlaybackReport["appId"] };
 let selectedSourceTabId: number | null = null;
@@ -905,7 +906,7 @@ function renderManualLyricsControls(): void {
 
 function renderCandidateVersions(): void {
   const report = manualTarget();
-  if (!report || availableCandidates.length === 0) {
+  if (!report || availableCandidatesMediaId !== report.mediaId || availableCandidates.length === 0) {
     candidateVersionsBtn.hidden = true;
     candidateVersionsSection.hidden = true;
     candidateVersionsList.replaceChildren();
@@ -1235,7 +1236,6 @@ function clearSelectedTrack(message: string): void {
   modeBadge.textContent = "等待播放來源";
   lyricsStatus.textContent = message;
   playbackSourceText.textContent = "尚未取得播放來源。";
-  availableCandidates = [];
   currentLyricsRecordId = undefined;
   renderCandidateVersions();
   setCaptionActionsVisible(false);
@@ -1439,7 +1439,10 @@ async function lookupSingleLyrics(report: PlaybackReport, operationGeneration: n
   let artistIsVerified = report.appId !== "youtube" || report.artistVerified === true || report.segmentStartMs !== undefined;
   renderLines();
   aiMatchRejectButton.hidden = true;
-  availableCandidates = [];
+  if (availableCandidatesMediaId !== report.mediaId) {
+    availableCandidates = [];
+    availableCandidatesMediaId = report.mediaId;
+  }
   currentLyricsRecordId = undefined;
   renderCandidateVersions();
   try {
@@ -1455,6 +1458,7 @@ async function lookupSingleLyrics(report: PlaybackReport, operationGeneration: n
         if (!record?.syncedLyrics) throw new Error("LRCLIB 已找不到這筆同步歌詞。");
         const lyrics = await parseRecordLyrics(record, `lrclib-${record.id}`);
         if (!isCurrent()) return;
+        if (lyrics.format === "plain" || lyrics.granularity === "none") throw new Error("這筆歌詞沒有有效時間戳。");
         selection = { record, lyrics, recordCount: 1, timelineCount: 1 };
         availableCandidates = rankCandidateRecords([...availableCandidates, record], currentLyricsRecordId, report.durationMs);
         resolvedTrack = { title: record.trackName, artists: [record.artistName], source: "manual" };
@@ -1481,6 +1485,7 @@ async function lookupSingleLyrics(report: PlaybackReport, operationGeneration: n
       availableCandidates = rankCandidateRecords([...availableCandidates, ...exact, ...resultsByArtist.flat()], currentLyricsRecordId, trackDurationMs);
       exactCandidatesCount = exact.length;
       selection = await selectAutomaticLyrics(exact, candidateArtists, trackDurationMs);
+      if (!isCurrent()) return;
     }
 
     if (!selection && report.appId === "youtube" && report.segmentStartMs === undefined && report.durationMs > 0) {
@@ -1496,6 +1501,7 @@ async function lookupSingleLyrics(report: PlaybackReport, operationGeneration: n
         availableCandidates = rankCandidateRecords([...availableCandidates, ...allCandidates, ...candidates], currentLyricsRecordId, report.durationMs);
         exactCandidatesCount = candidates.length;
         selection = await selectAutomaticLyrics(candidates, [credit.artist], report.durationMs);
+        if (!isCurrent()) return;
         if (selection) {
           resolvedTrack = { title: selection.record.trackName, artists: [selection.record.artistName], source: "youtube-credit" };
           displayPlaybackSource(report);
@@ -1522,6 +1528,7 @@ async function lookupSingleLyrics(report: PlaybackReport, operationGeneration: n
       availableCandidates = rankCandidateRecords([...availableCandidates, ...allCandidates, ...candidates], currentLyricsRecordId, report.durationMs);
       exactCandidatesCount = candidates.length;
       selection = await selectAutomaticLyrics(candidates, [], report.durationMs);
+      if (!isCurrent()) return;
       if (selection) {
         resolvedTrack = { title: selection.record.trackName, artists: [selection.record.artistName], source: "title-match" };
         displayPlaybackSource(report);
@@ -1567,9 +1574,11 @@ async function lookupSingleLyrics(report: PlaybackReport, operationGeneration: n
       aiMatchRejectButton.textContent = "不是這首";
       aiMatchRejectButton.hidden = false;
     }
+    const hint = availableCandidates.length > 1 ? "也可按頂部「版本」切換其他版本。" : "";
+    startLyricsClock();
     lyricsStatus.textContent = automaticVersion
-      ? `已從 ${selection.recordCount} 筆相符資料、${selection.timelineCount} 種時間軸自動選版（LRCLIB ${selection.record.id}）；優先比對片長，再比對歌手。可於「設定」中切換其他版本。`
-      : `已匹配同步歌詞（LRCLIB ${selection.record.id}）；位置跟隨播放分頁。${availableCandidates.length > 1 ? "可於「設定」中切換其他版本。" : ""}`;
+      ? `已從 ${selection.recordCount} 筆相符資料、${selection.timelineCount} 種時間軸自動選版（LRCLIB ${selection.record.id}）；優先比對片長，再比對歌手。MV 片頭可能造成時間差，可到設定「校正歌詞時間」調整。${hint}`
+      : `已匹配同步歌詞（LRCLIB ${selection.record.id}）；位置跟隨播放分頁。${hint}`;
     renderLines();
     setStatus("歌詞隨播放進度同步。", "listening");
   } catch (error) {
