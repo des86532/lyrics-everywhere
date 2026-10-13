@@ -34,6 +34,13 @@
           <button id="mix-replay-mode" class="button" type="button" hidden>重播字幕</button>
           <button id="ai-match-reject" class="button button-secondary" type="button" hidden>不是這首</button>
         </div>
+        <div id="lyric-calibration-bar" class="control-row" hidden>
+          <button id="calibration-toggle" class="button button-secondary" type="button" aria-pressed="false">校時</button>
+          <button id="calibration-earlier" class="button" type="button" hidden>歌詞提前 0.5 秒</button>
+          <button id="calibration-later" class="button" type="button" hidden>歌詞延後 0.5 秒</button>
+          <button id="calibration-revert" class="button button-quiet" type="button" hidden>還原</button>
+        </div>
+        <p id="calibration-status" class="fine-print" role="status" aria-live="polite" hidden></p>
         <p id="caption-help" class="fine-print caption-help" role="status" aria-live="polite" hidden></p>
         <p id="caption-progress" class="fine-print caption-progress" aria-live="off" hidden></p>
         <p id="ai-lookup-status" class="fine-print" aria-live="polite" hidden></p>
@@ -53,7 +60,7 @@
               <details id="lyric-timing-editor" class="disclosure lyric-timing" name="drawer" hidden>
                 <summary>校正歌詞時間</summary>
                 <div class="disclosure-content">
-                  <p class="fine-print">輸入要加到所有歌詞時間上的偏移，例如 5 或 1:05.3；負值（例如 -2.5）讓歌詞提前。只套用於這支影片與此歌詞版本。</p>
+                  <p class="fine-print">輸入要加到所有歌詞時間上的偏移，例如 5 或 1:05.3；負值（例如 -2.5）讓歌詞提前。只套用於這支影片與此歌詞版本。也可在主畫面按「校時」，邊聽邊點歌詞對齊。</p>
                   <label for="lyric-timing-offset">歌詞時間偏移</label>
                   <input id="lyric-timing-offset" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" maxlength="16" placeholder="例如 5、-2.5 或 1:05.3" disabled />
                   <div class="lyric-timing-actions">

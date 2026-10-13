@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { exactSyncedCandidates, exactSyncedCandidatesForArtists, mixReplayWindow, playbackPositionAt, playbackTrackPositionAt, specialVideoKind, titleLookupKeyword, titleMentionedCandidates, titleSearchQueries, type PlaybackReport } from "../extension-ui/src/playback.js";
+import { exactSyncedCandidates, exactSyncedCandidatesForArtists, lyricFocusAt, mixReplayWindow, playbackPositionAt, playbackTrackPositionAt, specialVideoKind, titleLookupKeyword, titleMentionedCandidates, titleSearchQueries, type PlaybackReport } from "../extension-ui/src/playback.js";
 
 const report = (values: Partial<PlaybackReport> = {}): PlaybackReport => ({
   version: 2,
@@ -125,6 +125,40 @@ describe("extension playback state", () => {
     expect(specialVideoKind("[MV] Loco(로꼬), GRAY _ Late Night")).toBeNull();
     expect(specialVideoKind("BIGBANG - 우리 사랑하지 말아요(LET'S NOT FALL IN LOVE) M/V")).toBeNull();
     expect(specialVideoKind("TAEYEON 태연 'I (feat. Verbal Jint)' MV")).toBeNull();
+  });
+});
+
+describe("lyric focus with interludes", () => {
+  const lines = [
+    { text: "", startMs: 0, endMs: 5000 },
+    { text: "A", startMs: 5000, endMs: 8000 },
+    { text: "", startMs: 8000, endMs: 20000 },
+    { text: "B", startMs: 20000, endMs: 24000 },
+  ];
+
+  it("counts down the prelude to the first text line", () => {
+    expect(lyricFocusAt(lines, 1000)).toEqual({ activeIndex: 1, state: "next", gap: { prelude: true, remainingMs: 4000 } });
+  });
+
+  it("highlights the sung line", () => {
+    expect(lyricFocusAt(lines, 6000)).toEqual({ activeIndex: 1, state: "active", gap: null });
+  });
+
+  it("counts down an interlude to the next text line", () => {
+    expect(lyricFocusAt(lines, 10000)).toEqual({ activeIndex: 3, state: "next", gap: { prelude: false, remainingMs: 10000 } });
+  });
+
+  it("keeps the last text line after the song ends", () => {
+    expect(lyricFocusAt(lines, 30000)).toEqual({ activeIndex: 3, state: "past", gap: null });
+  });
+
+  it("returns null when no line has text", () => {
+    expect(lyricFocusAt([{ text: " ", startMs: 0, endMs: 5000 }], 100)).toBeNull();
+  });
+
+  it("has no countdown for a gap between text lines without a blank line", () => {
+    const tight = [{ text: "A", startMs: 0, endMs: 1000 }, { text: "B", startMs: 3000, endMs: 4000 }];
+    expect(lyricFocusAt(tight, 2000)).toEqual({ activeIndex: 1, state: "next", gap: null });
   });
 });
 

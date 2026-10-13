@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  alignedLyricOffset,
   formatLyricOffset,
   isValidLyricOffset,
   lyricPositionForVideo,
   MAX_LYRIC_OFFSET_MS,
+  nudgeLyricOffset,
   parseLyricOffset,
 } from "../extension-ui/src/lyric-timing.js";
 
@@ -69,6 +71,22 @@ describe("per-video lyric timing offset", () => {
         expect(isValidLyricOffset(value)).toBe(false);
       }
       expect(isValidLyricOffset(-3600000)).toBe(true);
+    });
+  });
+
+  describe("calibration helpers", () => {
+    it("aligns a line to the video position with the same sign as lyricPositionForVideo", () => {
+      expect(alignedLyricOffset(30000, 6770)).toBe(23230);
+      expect(alignedLyricOffset(1000, 5000)).toBe(-4000);
+      const offset = alignedLyricOffset(30000, 6770)!;
+      expect(lyricPositionForVideo(30000, offset)).toBe(6770);
+      expect(alignedLyricOffset(4_000_000, 0)).toBeNull();
+    });
+
+    it("nudges the offset and refuses to pass the limit", () => {
+      expect(nudgeLyricOffset(2400, -500)).toBe(1900);
+      expect(nudgeLyricOffset(500, -500)).toBe(0);
+      expect(nudgeLyricOffset(3_600_000, 500)).toBeNull();
     });
   });
 });

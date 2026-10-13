@@ -30,3 +30,14 @@ export function lyricPositionForVideo(videoMs: number, offsetMs?: number): numbe
   const video = Number.isFinite(videoMs) && videoMs >= 0 ? videoMs : 0;
   return Math.max(0, video - (isValidLyricOffset(offsetMs) ? offsetMs : 0));
 }
+
+/** Offset that makes the lyric line starting at lineStartMs play at videoMs. Null when beyond the limit. */
+export function alignedLyricOffset(videoMs: number, lineStartMs: number): number | null {
+  const offsetMs = Math.round(videoMs - lineStartMs);
+  return Number.isFinite(offsetMs) && Math.abs(offsetMs) <= MAX_LYRIC_OFFSET_MS ? offsetMs : null;
+}
+
+export function nudgeLyricOffset(currentMs: number, deltaMs: number): number | null {
+  const offsetMs = currentMs + deltaMs;
+  return Math.abs(offsetMs) <= MAX_LYRIC_OFFSET_MS ? offsetMs : null;
+}

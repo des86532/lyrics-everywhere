@@ -8,9 +8,9 @@ import { TranscriptLines, type TranscriptLine, type TimestampedChunk } from "./t
 import type { SyncedLyrics } from "../../src/domain/types.js";
 import { durationTolerance, fetchLrclibRecord, lrclibFetcher, parseRecordLyrics, searchLyricsByVideoTitle, searchLyricsForArtists, searchLyricsForIdentity, selectAutomaticLyrics, type LrclibRecord } from "./lyrics.js";
 import { selectYouTubeMusicCredit, type YouTubeMusicCredit } from "./youtube-music-credit.js";
-import { exactSyncedCandidatesForArtists, lyricWindowStart, LYRICS_WINDOW_SIZE, mixReplayWindow, playbackPositionAt, playbackTrackPositionAt, specialVideoKind, titleLookupKeyword, type PlaybackReport, type SpecialVideoKind } from "./playback.js";
+import { exactSyncedCandidatesForArtists, lyricFocusAt, lyricWindowStart, LYRICS_WINDOW_SIZE, mixReplayWindow, playbackPositionAt, playbackTrackPositionAt, specialVideoKind, titleLookupKeyword, type LyricFocus, type PlaybackReport, type SpecialVideoKind } from "./playback.js";
 import { MANUAL_LYRICS_STORAGE_KEY, MAX_MANUAL_SELECTIONS, manualLyricsPrompt, parseManualLyricsInput, parseManualSelections, extractLyricSnippet, formatDuration, rankCandidateRecords } from "./manual-lyrics.js";
-import { formatLyricOffset, isValidLyricOffset, lyricPositionForVideo, parseLyricOffset } from "./lyric-timing.js";
+import { alignedLyricOffset, formatLyricOffset, isValidLyricOffset, lyricPositionForVideo, nudgeLyricOffset, parseLyricOffset } from "./lyric-timing.js";
 import { MixCache, type CompleteMix } from "./mix-cache.js";
 import {
   DEFAULT_DISPLAY_PREFERENCES,
@@ -105,6 +105,12 @@ const lyricTimingOffsetInput = element<HTMLInputElement>("lyric-timing-offset");
 const lyricTimingApplyButton = element<HTMLButtonElement>("lyric-timing-apply");
 const lyricTimingClearButton = element<HTMLButtonElement>("lyric-timing-clear");
 const lyricTimingFeedback = element<HTMLParagraphElement>("lyric-timing-feedback");
+const lyricCalibrationBar = element<HTMLDivElement>("lyric-calibration-bar");
+const calibrationToggleButton = element<HTMLButtonElement>("calibration-toggle");
+const calibrationEarlierButton = element<HTMLButtonElement>("calibration-earlier");
+const calibrationLaterButton = element<HTMLButtonElement>("calibration-later");
+const calibrationRevertButton = element<HTMLButtonElement>("calibration-revert");
+const calibrationStatus = element<HTMLParagraphElement>("calibration-status");
 const singleModeButton = element<HTMLButtonElement>("single-mode");
 const mixFirstButton = element<HTMLButtonElement>("mix-first-mode");
 const mixReplayButton = element<HTMLButtonElement>("mix-replay-mode");
@@ -144,6 +150,10 @@ let aiRejectedVideoIds: string[] = [];
 let availableCandidates: LrclibRecord[] = [];
 let availableCandidatesMediaId: string | null = null;
 let currentLyricsRecordId: number | undefined;
+const CALIBRATION_STEP_MS = 500;
+let calibrating = false;
+let calibrationRevert: { key: string; offsetMs: number | undefined } | null = null;
+let calibrationMessage = "";
 type PlaybackTab = { tabId: number; title: string; appId: PlaybackReport["appId"] };
 let selectedSourceTabId: number | null = null;
 let sourceListGeneration = 0;
@@ -722,6 +732,7 @@ function renderCurrentLyrics(): void {
 }
 
 function renderLines(): void {
+  delete selectedLyricsElement.dataset.calibrationHash; // pronunciation/display settings may have changed
   transcriptElement.hidden = selectedLyrics !== null;
   selectedLyricsElement.hidden = selectedLyrics === null;
   renderSelectedLyrics();
@@ -806,8 +817,10 @@ function updateLyricTimingControls(): void {
   const shown = Boolean(selectedLyrics && lyricsMode && singalongMode === "single" &&
     playbackReport?.appId === "youtube" && playbackReport.segmentStartMs === undefined);
   lyricTimingEditor.hidden = !shown;
-  if (!shown) return;
   const key = selectedTimingKey();
+  lyricCalibrationBar.hidden = !shown || !key;
+  if (lyricCalibrationBar.hidden && calibrating) exitCalibration(false);
+  if (!shown) return;
   const offsetMs = key ? lyricTimingOffsets[key] : undefined;
   if (key !== lyricTimingInputKey) { // prefill only when video/lyrics change; never clobber typing on clock ticks
     lyricTimingInputKey = key;
@@ -1080,6 +1093,18 @@ async function applyManualLyrics(): Promise<void> {
   }
 }
 
+/** Single write path for the lyric offset: keeps the settings input, persistence and calibration bar in sync. */
+function setLyricOffset(key: string, offsetMs: number): void {
+  if (offsetMs === 0) delete lyricTimingOffsets[key];
+  else lyricTimingOffsets[key] = offsetMs;
+  lyricTimingOffsetInput.value = offsetMs === 0 ? "" : formatLyricOffset(offsetMs);
+  lyricTimingInputKey = key;
+  updateLyricTimingControls();
+  renderSelectedLyrics();
+  persistLyricTimingCorrections();
+  renderCalibrationControls();
+}
+
 function applyLyricTimingOffset(): void {
   const key = selectedTimingKey();
   if (!key) {
@@ -1092,34 +1117,20 @@ function applyLyricTimingOffset(): void {
     setLyricTimingFeedback("請輸入秒數或 m:ss，例如 5、-2.5、1:05.3（上限 60 分鐘）；原校時保持不變。");
     return;
   }
-  if (offsetMs === 0) {
-    delete lyricTimingOffsets[key];
-    lyricTimingOffsetInput.value = "";
-    setLyricTimingFeedback("偏移為 0，已清除這支影片的校時。");
-  } else {
-    lyricTimingOffsets[key] = offsetMs;
-    lyricTimingOffsetInput.value = formatLyricOffset(offsetMs);
-    setLyricTimingFeedback(`已套用：所有歌詞時間 ${formatLyricOffset(offsetMs)}。`);
-  }
-  updateLyricTimingControls();
-  renderSelectedLyrics();
-  persistLyricTimingCorrections();
+  setLyricTimingFeedback(offsetMs === 0 ? "偏移為 0，已清除這支影片的校時。" : `已套用：所有歌詞時間 ${formatLyricOffset(offsetMs)}。`);
+  setLyricOffset(key, offsetMs);
 }
 
 function clearLyricTimingCorrection(): void {
   const key = selectedTimingKey();
   if (!key) return;
-  delete lyricTimingOffsets[key];
-  lyricTimingOffsetInput.value = "";
   setLyricTimingFeedback("已清除這支影片的校時；其他影片與歌詞版本未變更。");
-  updateLyricTimingControls();
-  renderSelectedLyrics();
-  persistLyricTimingCorrections();
+  setLyricOffset(key, 0);
 }
 
 type LyricLineState = "past" | "active" | "next" | "upcoming" | "plain";
 
-function appendSelectedLyric(text: string, state: LyricLineState = "plain"): void {
+function appendSelectedLyric(text: string, state: LyricLineState = "plain"): HTMLDivElement {
   const pronunciation = transcribeText(text);
   const line = document.createElement("div");
   line.className = `selected-line is-${state}`;
@@ -1138,35 +1149,177 @@ function appendSelectedLyric(text: string, state: LyricLineState = "plain"): voi
   sung.append(ink);
   line.append(sung);
   selectedLyricsElement.append(line);
+  return line;
+}
+
+function appendInterludeMarker(gap: NonNullable<LyricFocus["gap"]>): void {
+  const seconds = Math.max(1, Math.ceil(gap.remainingMs / 1000));
+  const marker = document.createElement("div");
+  marker.className = "selected-line is-interlude";
+  marker.setAttribute("aria-current", "true");
+  const text = document.createElement("p");
+  text.className = "selected-lyric-interlude";
+  text.textContent = gap.prelude ? `♪ 前奏 · ${seconds} 秒後開始` : `♪ 間奏 · ${seconds} 秒後`;
+  marker.append(text);
+  selectedLyricsElement.append(marker);
+}
+
+/** Calibration view lists every timed line once and only toggles highlight classes per tick, so scroll position and clicks survive the clock. */
+function renderCalibrationLyrics(lyrics: SyncedLyrics, focus: LyricFocus | null): void {
+  const hash = lyrics.contentHash ?? "";
+  let rebuilt = false;
+  if (selectedLyricsElement.dataset.calibrationHash !== hash) {
+    rebuilt = true;
+    selectedLyricsElement.replaceChildren();
+    lyrics.lines.forEach((lyric, index) => {
+      if (!/\S/u.test(lyric.text) || lyric.startMs === undefined) return;
+      const row = appendSelectedLyric(lyric.text);
+      const label = formatTime(lyric.startMs);
+      const time = document.createElement("time");
+      time.className = "lyric-time";
+      time.textContent = label;
+      row.prepend(time);
+      row.dataset.lineIndex = String(index);
+      row.tabIndex = 0;
+      row.setAttribute("role", "button");
+      row.setAttribute("aria-label", `${label} ${lyric.text}：設為現在開始唱`);
+    });
+    selectedLyricsElement.dataset.calibrationHash = hash;
+  }
+  for (const row of selectedLyricsElement.querySelectorAll<HTMLElement>("[data-line-index]")) {
+    row.classList.remove("is-active", "is-next");
+    row.removeAttribute("aria-current");
+  }
+  const focused = focus ? selectedLyricsElement.querySelector<HTMLElement>(`[data-line-index="${focus.activeIndex}"]`) : null;
+  if (focus && focused) {
+    focused.classList.add(focus.state === "active" ? "is-active" : "is-next");
+    if (focus.state === "active") focused.setAttribute("aria-current", "true");
+  }
+  if (rebuilt) focused?.scrollIntoView({ block: "center" });
 }
 
 function renderSelectedLyrics(): void {
+  if (calibrating && (!selectedLyrics || calibrationRevert?.key !== selectedTimingKey())) exitCalibration(false);
+  const report = playbackReport;
+  const fresh = report !== null && Date.now() - report.capturedAtMs <= 3000;
+  const correctionKey = selectedTimingKey();
+  const focus = selectedLyrics && report && fresh
+    ? lyricFocusAt(selectedLyrics.lines, lyricPositionForVideo(trackLyricsPositionAt(report, Date.now()), correctionKey ? lyricTimingOffsets[correctionKey] : undefined))
+    : null;
+  if (calibrating && selectedLyrics) {
+    renderCalibrationLyrics(selectedLyrics, focus);
+    updateLyricTimingControls();
+    return;
+  }
+  delete selectedLyricsElement.dataset.calibrationHash;
   selectedLyricsElement.replaceChildren();
   if (!selectedLyrics) {
     updateLyricTimingControls();
     return;
   }
-  if (!playbackReport || Date.now() - playbackReport.capturedAtMs > 3000) {
+  if (!fresh) {
     for (const lyric of selectedLyrics.lines) appendSelectedLyric(lyric.text);
     updateLyricTimingControls();
     return;
   }
-  const videoPosition = trackLyricsPositionAt(playbackReport, Date.now());
-  const correctionKey = selectedTimingKey();
-  const position = lyricPositionForVideo(videoPosition, correctionKey ? lyricTimingOffsets[correctionKey] : undefined);
-  const matchingIndex = selectedLyrics.lines.findIndex((line) => line.startMs !== undefined && line.endMs !== undefined && position >= line.startMs && position < line.endMs);
-  const nextIndex = selectedLyrics.lines.findIndex((line) => line.startMs !== undefined && line.startMs > position);
-  const activeIndex = matchingIndex >= 0 ? matchingIndex : nextIndex >= 0 ? nextIndex : selectedLyrics.lines.length - 1;
-  const focusState: LyricLineState = matchingIndex >= 0 ? "active" : nextIndex >= 0 ? "next" : "past";
-  const firstIndex = lyricWindowStart(selectedLyrics.lines, activeIndex);
+  if (!focus) {
+    updateLyricTimingControls();
+    return;
+  }
+  const firstIndex = lyricWindowStart(selectedLyrics.lines, focus.activeIndex);
   let displayed = 0;
   for (let index = firstIndex; index < selectedLyrics.lines.length && displayed < LYRICS_WINDOW_SIZE; index += 1) {
     const lyric = selectedLyrics.lines[index];
     if (!/\S/u.test(lyric.text)) continue;
-    appendSelectedLyric(lyric.text, index === activeIndex ? focusState : index < activeIndex ? "past" : "upcoming");
+    if (index === focus.activeIndex && focus.gap) appendInterludeMarker(focus.gap);
+    appendSelectedLyric(lyric.text, index === focus.activeIndex ? focus.state : index < focus.activeIndex ? "past" : "upcoming");
     displayed += 1;
   }
   updateLyricTimingControls();
+}
+
+function renderCalibrationControls(): void {
+  calibrationToggleButton.textContent = calibrating ? "完成校時" : "校時";
+  calibrationToggleButton.setAttribute("aria-pressed", String(calibrating));
+  calibrationEarlierButton.hidden = !calibrating;
+  calibrationLaterButton.hidden = !calibrating;
+  calibrationRevertButton.hidden = !calibrating;
+  calibrationStatus.hidden = !calibrating;
+  selectedLyricsElement.classList.toggle("is-calibrating", calibrating);
+  if (!calibrating) return;
+  const current = lyricTimingOffsets[selectedTimingKey() ?? ""];
+  const offsetText = current === undefined ? "0" : formatLyricOffset(current);
+  calibrationStatus.textContent = `${calibrationMessage || "點一下正在開始唱的那句歌詞即可對齊。"}目前偏移：${offsetText}`;
+}
+
+function enterCalibration(): void {
+  const key = selectedTimingKey();
+  if (!key) return;
+  calibrating = true;
+  calibrationRevert = { key, offsetMs: lyricTimingOffsets[key] };
+  calibrationMessage = "";
+  delete selectedLyricsElement.dataset.calibrationHash;
+  renderCalibrationControls();
+  renderSelectedLyrics();
+}
+
+function exitCalibration(render = true): void {
+  calibrating = false;
+  calibrationRevert = null;
+  calibrationMessage = "";
+  delete selectedLyricsElement.dataset.calibrationHash;
+  renderCalibrationControls();
+  if (render && lyricsMode) renderSelectedLyrics();
+}
+
+function nudgeCalibration(deltaMs: number): void {
+  const key = selectedTimingKey();
+  if (!key) return;
+  const next = nudgeLyricOffset(lyricTimingOffsets[key] ?? 0, deltaMs);
+  if (next === null) {
+    calibrationMessage = "已達偏移上限（60 分鐘）。";
+    renderCalibrationControls();
+    return;
+  }
+  calibrationMessage = "";
+  setLyricTimingFeedback("");
+  setLyricOffset(key, next);
+}
+
+function revertCalibration(): void {
+  const key = selectedTimingKey();
+  if (!calibrationRevert || calibrationRevert.key !== key || !key) return;
+  calibrationMessage = "已還原為進入校時前的偏移。";
+  setLyricTimingFeedback("");
+  setLyricOffset(key, calibrationRevert.offsetMs ?? 0);
+}
+
+function alignCalibrationLine(index: number): void {
+  const key = selectedTimingKey();
+  const line = selectedLyrics?.lines[index];
+  if (!key || line?.startMs === undefined) return;
+  if (!playbackReport || Date.now() - playbackReport.capturedAtMs > 3000) {
+    calibrationMessage = "播放來源失聯，無法對齊；請確認影片正在播放。";
+    renderCalibrationControls();
+    return;
+  }
+  const offsetMs = alignedLyricOffset(trackLyricsPositionAt(playbackReport, Date.now()), line.startMs);
+  if (offsetMs === null) {
+    calibrationMessage = "偏移超過 60 分鐘上限，未套用。";
+    renderCalibrationControls();
+    return;
+  }
+  calibrationMessage = `已把「${line.text}」對齊到現在。`;
+  setLyricTimingFeedback("");
+  setLyricOffset(key, offsetMs);
+}
+
+function alignFromEvent(event: Event): void {
+  if (!calibrating || !(event.target instanceof Element)) return;
+  const row = event.target.closest<HTMLElement>("[data-line-index]");
+  if (!row) return;
+  event.preventDefault();
+  alignCalibrationLine(Number(row.dataset.lineIndex));
 }
 lyricTimingApplyButton.addEventListener("click", applyLyricTimingOffset);
 lyricTimingOffsetInput.addEventListener("keydown", (event) => {
@@ -1175,6 +1328,17 @@ lyricTimingOffsetInput.addEventListener("keydown", (event) => {
   applyLyricTimingOffset();
 });
 lyricTimingClearButton.addEventListener("click", clearLyricTimingCorrection);
+calibrationToggleButton.addEventListener("click", () => {
+  if (calibrating) exitCalibration();
+  else enterCalibration();
+});
+calibrationEarlierButton.addEventListener("click", () => nudgeCalibration(-CALIBRATION_STEP_MS));
+calibrationLaterButton.addEventListener("click", () => nudgeCalibration(CALIBRATION_STEP_MS));
+calibrationRevertButton.addEventListener("click", revertCalibration);
+selectedLyricsElement.addEventListener("click", (event) => alignFromEvent(event));
+selectedLyricsElement.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" || event.key === " ") alignFromEvent(event);
+});
 
 
 function startLyricsClock(): void {
@@ -1228,6 +1392,7 @@ function clearSelectedTrack(message: string): void {
   transcriptLines.clear();
   selectedLyrics = null;
   lyricsMode = false;
+  exitCalibration(false);
   lyricsLookupPending = false;
   lyricTimingOffsetInput.value = "";
   lyricTimingInputKey = null;

@@ -74,6 +74,12 @@ button, input, select { font: inherit; color: inherit; }
 .selected-line.is-active .selected-lyric-ink { background: linear-gradient(176deg, transparent 52%, var(--coral-wash) 52%, var(--coral-wash) 92%, transparent 92%); }
 .selected-line.is-active .selected-lyric-original { color: var(--coral); }
 .selected-line.is-next .selected-lyric-ink { text-decoration: underline dotted var(--coral); text-decoration-thickness: 2px; text-underline-offset: 0.22em; }
+.selected-lyric-interlude { margin: 0; font-size: 15px; font-weight: 700; color: var(--mint); letter-spacing: 0.02em; }
+.selected-lyrics.is-calibrating .selected-line { padding: 6px 8px; border-radius: 8px; cursor: pointer; }
+.selected-lyrics.is-calibrating .selected-line:hover, .selected-lyrics.is-calibrating .selected-line:focus-visible { background: rgb(127 212 193 / 0.12); }
+.selected-lyrics.is-calibrating .selected-lyric { font-size: 17px; }
+.selected-lyrics.is-calibrating .lyric-time { display: block; margin: 0 0 2px; }
+#calibration-status:empty { display: none; }
 .selected-lyrics[hidden] { display: none; }
 
 /* Empty, notice and ASR transcript */

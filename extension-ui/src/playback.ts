@@ -56,6 +56,31 @@ export function lyricWindowStart(lines: ReadonlyArray<{ text: string }>, focusIn
   return start;
 }
 
+export type LyricFocus = {
+  activeIndex: number;
+  state: "active" | "next" | "past";
+  gap: { prelude: boolean; remainingMs: number } | null;
+};
+
+/** Picks the line to highlight. Blank timed lines (prelude/interlude) never take focus; they yield a countdown to the next text line instead. */
+export function lyricFocusAt(
+  lines: ReadonlyArray<{ text: string; startMs?: number; endMs?: number }>,
+  positionMs: number,
+): LyricFocus | null {
+  const isText = (line: { text: string; startMs?: number }) => /\S/u.test(line.text) && line.startMs !== undefined;
+  const firstText = lines.findIndex(isText);
+  if (firstText < 0) return null;
+  const matching = lines.findIndex((line) => line.startMs !== undefined && line.endMs !== undefined && positionMs >= line.startMs && positionMs < line.endMs);
+  if (matching >= 0 && isText(lines[matching])) return { activeIndex: matching, state: "active", gap: null };
+  const nextText = lines.findIndex((line) => isText(line) && line.startMs! > positionMs);
+  if (nextText < 0) return { activeIndex: lines.map(isText).lastIndexOf(true), state: "past", gap: null };
+  const prelude = nextText === firstText;
+  if (matching >= 0 || prelude) {
+    return { activeIndex: nextText, state: "next", gap: { prelude, remainingMs: lines[nextText].startMs! - positionMs } };
+  }
+  return { activeIndex: nextText, state: "next", gap: null };
+}
+
 export function mixReplayWindow(lines: TranscriptLine[], positionMs: number): { focusIndex: number; lines: TranscriptLine[] } {
   if (lines.length === 0) return { focusIndex: -1, lines: [] };
   const activeIndex = lines.findIndex((line) => positionMs >= line.startMs && positionMs < line.endMs);
