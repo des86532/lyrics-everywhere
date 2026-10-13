@@ -90,18 +90,70 @@
 
 ---
 
-## 5. 商店素材規格（Store Assets Checklist）
+## 5. 商店素材清單（Store Assets Checklist）
 
-上架時需由開發者準備之視覺素材：
+所有素材均已產生並存放於專案根目錄之 `store-assets/`，亦可隨時透過 `pnpm run build:store-assets` 重新產出：
 
-1. **圖示（已隨套件打包）：**
-   - 16×16、32×32、48×48、128×128 PNG（位於 `browser-extension/icons/`）。
-2. **螢幕截圖（Screenshots）：**
-   - 尺寸：1280×800 或 640×400 PNG。
-   - 建議內容：
-     1. YouTube 播放時側欄顯示同步歌詞與空耳標註。
-     2. 側欄手動校時介面操作。
-     3. 側欄手動搜尋 / 貼上 LRCLIB 連結介面。
-     4. 本機語音辨識字幕結果。
-3. **小型宣傳橫幅（Small Promo Tile，選填但強烈建議）：**
-   - 尺寸：440×280 PNG。
+1. **商店圖示（Store Icon）：**
+   - 檔案：`store-assets/store-icon-128x128.png`
+   - 規格：128×128 PNG（透明度背景，無外框圓角，商店自動切圓角）
+2. **螢幕截圖（Screenshots，共 4 張）：**
+   - 規格：**1280×800 PNG**（符合商店 16:10 強制比例）
+   - `store-assets/screenshot-1-synced-lyrics.png`：YouTube 播放畫面 + 側欄動態歌詞滾動，日語漢字振假名與中文空耳標註，珊瑚粉螢光筆高亮（主視覺）。
+   - `store-assets/screenshot-2-timing-settings.png`：時間軸即時校正設定彈窗（微調秒數偏移記憶）與空耳顯示偏好（中文近音字/羅馬拼音）。
+   - `store-assets/screenshot-3-manual-lyrics.png`：Spotify 播放畫面 + 手動搜尋 LRCLIB 完整開放歌詞庫，多版本即時預覽切換。
+   - `store-assets/screenshot-4-local-transcription.png`：現場 Live / 翻唱影片使用本機 WebGPU Whisper 離線辨識自動生成時間戳字幕（強調 100% 隱私保護）。
+3. **宣傳橫幅（Promo Tiles）：**
+   - **小型宣傳橫幅（Small Promo Tile，必填/建議）：**
+     - 檔案：`store-assets/promo-tile-small-440x280.png`
+     - 規格：440×280 PNG
+   - **大型促銷橫幅（Marquee Promo Tile，選填）：**
+     - 檔案：`store-assets/promo-tile-marquee-1400x560.png`
+     - 規格：1400×560 PNG
+
+---
+
+## 6. 上架操作步驟指南（Step-by-Step Submission Guide）
+
+### 步驟 1：開發者帳號註冊與登入
+1. 開啟 [Chrome Web Store 開發者控制台 (Developer Dashboard)](https://chrome.google.com/webstore/devconsole/)。
+2. 登入 Google 帳號（請確保已啟用雙重驗證 2FA）。
+3. 首次註冊需支付一次性註冊費 **$5 美元** 並填寫開發者聯絡資訊。
+
+### 步驟 2：打包並上傳擴充功能套件
+1. 於終端機執行：
+   ```bash
+   pnpm run package:extension
+   ```
+2. 產出套件位於：`release/lyrics-everywhere-extension.zip`。
+3. 在開發者控制台右上角點擊 **「新增項目 (New Item)」**，上傳該 zip 檔案。
+
+### 步驟 3：填寫商品資訊（Store Listing）
+1. **商品名稱**：填入 `Lyrics Everywhere 耳邊字幕`
+2. **摘要（Short Description）**：填入第 2 節之簡短說明（≤132 字元）
+3. **詳細說明（Detailed Description）**：複製第 2 節之詳細說明 Markdown 內容
+4. **圖示**：上傳 `store-assets/store-icon-128x128.png`
+5. **螢幕截圖**：依序上傳 `store-assets/screenshot-1-synced-lyrics.png` 至 `screenshot-4-local-transcription.png`
+6. **小型宣傳橫幅**：上傳 `store-assets/promo-tile-small-440x280.png`
+7. **類別（Category）**：選擇 **實用工具 (Workflow & Planning / Tools)** 或 **娛樂 (Entertainment)**
+8. **官方網站 / 支援網址**：填入專案網址或 GitHub 儲存庫
+
+### 步驟 4：填寫隱私權實務問卷（Privacy Practices）
+1. **單一用途聲明**：複製第 1 節內容。
+2. **權限原因（Permissions）**：
+   - 依序複製第 3 節提供的 Justification（可填中文或英文）。
+3. **資料使用情形（Data Usage）**：
+   - 勾選「網站內容 (Website Content)」，說明文字填寫：「依據播放頁面標題與時間於本機進行動態歌詞同步查詢與顯示，不蒐集或外傳個人身分資料。」
+   - 其餘項目皆勾選「否 (No)」。
+   - 勾選三項承諾（不向第三方出售資料、不將資料用於非核心功能、不進行信用評估）。
+4. **隱私權政策網址**：填入已部署的隱私權政策網頁（如 Cloudflare Pages 或 GitHub Pages，對應本專案 `site/index.html`）。
+
+### 步驟 5：分發設定（Distribution）
+1. **可見度（Visibility）**：選擇「公開 (Public)」。
+2. **定價（Pricing）**：選擇「免費 (Free)」。
+3. **發布區域**：預設全球所有國家/地區。
+
+### 步驟 6：提交審查（Submit for Review）
+1. 確認所有必填項目皆有綠色勾號。
+2. 點擊右上角 **「提交以供審查 (Submit for Review)」**。
+3. 審查時間通常為 **1 至 3 個工作天**（若遇週末或重大版本更新可能延長至 5 天）。
