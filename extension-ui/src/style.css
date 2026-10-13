@@ -185,6 +185,17 @@ progress { width: 100%; height: 4px; accent-color: var(--coral); }
 .source-row .button { flex: none; }
 #source-selection-status:empty, #lyric-timing-feedback:empty, #manual-lyrics-status:empty { display: none; }
 
+.candidate-versions-section { margin-top: 4px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 6px; }
+.candidate-versions-list { display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto; overscroll-behavior: contain; padding-right: 2px; }
+.candidate-version-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 10px; background: var(--room-deep); border: 1px solid var(--line); border-radius: 8px; }
+.candidate-version-item.is-active { border-color: var(--coral); background: rgb(255 126 143 / 0.12); }
+.candidate-version-info { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.candidate-version-title { font-size: 12px; font-weight: 700; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.candidate-version-meta { font-size: 10px; color: var(--muted); }
+.candidate-version-snippet { font-size: 11px; color: var(--ink-soft); font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.candidate-version-btn { flex: none; font-size: 11px; min-height: 26px; padding: 2px 10px; border-radius: 999px; }
+.candidate-version-item.is-active .candidate-version-btn { background: var(--coral); color: var(--coral-ink); font-weight: 700; border-color: var(--coral); }
+
 @media (max-height: 430px) {
   .app-shell { gap: 5px; padding: 6px 9px; }
   .stage { padding: 8px 10px; }

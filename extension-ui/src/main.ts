@@ -9,7 +9,7 @@ import type { SyncedLyrics } from "../../src/domain/types.js";
 import { durationTolerance, fetchLrclibRecord, lrclibFetcher, parseRecordLyrics, searchLyricsByVideoTitle, searchLyricsForArtists, searchLyricsForIdentity, selectAutomaticLyrics, type LrclibRecord } from "./lyrics.js";
 import { selectYouTubeMusicCredit, type YouTubeMusicCredit } from "./youtube-music-credit.js";
 import { exactSyncedCandidatesForArtists, lyricWindowStart, LYRICS_WINDOW_SIZE, mixReplayWindow, playbackPositionAt, playbackTrackPositionAt, specialVideoKind, titleLookupKeyword, type PlaybackReport, type SpecialVideoKind } from "./playback.js";
-import { MANUAL_LYRICS_STORAGE_KEY, MAX_MANUAL_SELECTIONS, manualLyricsPrompt, parseManualLyricsInput, parseManualSelections } from "./manual-lyrics.js";
+import { MANUAL_LYRICS_STORAGE_KEY, MAX_MANUAL_SELECTIONS, manualLyricsPrompt, parseManualLyricsInput, parseManualSelections, extractLyricSnippet, formatDuration, rankCandidateRecords } from "./manual-lyrics.js";
 import { formatLyricOffset, isValidLyricOffset, lyricPositionForVideo, parseLyricOffset } from "./lyric-timing.js";
 import { MixCache, type CompleteMix } from "./mix-cache.js";
 import {
@@ -113,9 +113,14 @@ const titleElement = element<HTMLHeadingElement>("transcript-title");
 const sourceSelect = element<HTMLSelectElement>("source-tab");
 const sourceRefreshButton = element<HTMLButtonElement>("refresh-source-tabs");
 const pinSourceButton = element<HTMLButtonElement>("pin-source");
+const candidateVersionsBtn = element<HTMLButtonElement>("candidate-versions-btn");
+const candidateVersionsCount = element<HTMLSpanElement>("candidate-versions-count");
 const openSettingsButton = element<HTMLButtonElement>("open-settings");
 const closeSettingsButton = element<HTMLButtonElement>("close-settings");
 const settingsDialog = element<HTMLDialogElement>("settings-dialog");
+const candidateVersionsSection = element<HTMLDivElement>("candidate-versions-section");
+const candidateVersionsList = element<HTMLDivElement>("candidate-versions-list");
+const manualLyricsDetails = element<HTMLDetailsElement>("manual-lyrics");
 const sourceSelectionStatus = element<HTMLParagraphElement>("source-selection-status");
 const sourceModeText = element<HTMLSpanElement>("source-mode");
 const captionHelp = element<HTMLParagraphElement>("caption-help");
@@ -136,6 +141,8 @@ let singleLookupController: AbortController | null = null;
 let resolvedTrack: { title: string; artists: string[]; source: "youtube-credit" | "title-match" | "manual" } | null = null;
 const AI_REJECTED_STORAGE_KEY = "aiRejectedVideoIds";
 let aiRejectedVideoIds: string[] = [];
+let availableCandidates: LrclibRecord[] = [];
+let currentLyricsRecordId: number | undefined;
 type PlaybackTab = { tabId: number; title: string; appId: PlaybackReport["appId"] };
 let selectedSourceTabId: number | null = null;
 let sourceListGeneration = 0;
@@ -893,6 +900,97 @@ function renderManualLyricsControls(): void {
   clearManualLyricsButton.disabled = manualApplying;
   const mode = chosen === undefined ? "自動比對" : `已指定 LRCLIB ${chosen}`;
   if (manualLyricsMode.textContent !== mode) manualLyricsMode.textContent = mode;
+  renderCandidateVersions();
+}
+
+function renderCandidateVersions(): void {
+  const report = manualTarget();
+  if (!report || availableCandidates.length === 0) {
+    candidateVersionsBtn.hidden = true;
+    candidateVersionsSection.hidden = true;
+    candidateVersionsList.replaceChildren();
+    return;
+  }
+
+  const chosen = report ? manualSelections.get(report.mediaId) : undefined;
+  const activeId = chosen ?? currentLyricsRecordId;
+  const ranked = rankCandidateRecords(availableCandidates, activeId, report.durationMs);
+
+  if (ranked.length <= 1 && activeId !== undefined) {
+    candidateVersionsBtn.hidden = true;
+  } else {
+    candidateVersionsBtn.hidden = false;
+    candidateVersionsCount.textContent = String(ranked.length);
+  }
+
+  candidateVersionsSection.hidden = ranked.length === 0;
+  candidateVersionsList.replaceChildren();
+
+  for (const record of ranked) {
+    const isCurrent = record.id === activeId;
+    const item = document.createElement("div");
+    item.className = `candidate-version-item ${isCurrent ? "is-active" : ""}`;
+
+    const info = document.createElement("div");
+    info.className = "candidate-version-info";
+
+    const titleEl = document.createElement("div");
+    titleEl.className = "candidate-version-title";
+    titleEl.textContent = `${record.trackName} — ${record.artistName}`;
+
+    const metaEl = document.createElement("div");
+    metaEl.className = "candidate-version-meta";
+    metaEl.textContent = `片長 ${formatDuration(record.duration)}${record.albumName ? ` · ${record.albumName}` : ""}`;
+
+    const snippetEl = document.createElement("div");
+    snippetEl.className = "candidate-version-snippet";
+    const snippet = extractLyricSnippet(record.syncedLyrics);
+    snippetEl.textContent = snippet ? `“${snippet}”` : "（無預覽）";
+
+    info.appendChild(titleEl);
+    info.appendChild(metaEl);
+    info.appendChild(snippetEl);
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `button candidate-version-btn ${isCurrent ? "button-primary" : "button-secondary"}`;
+    btn.textContent = isCurrent ? "使用中" : "切換";
+    btn.disabled = isCurrent || manualApplying;
+
+    if (!isCurrent) {
+      btn.addEventListener("click", () => {
+        void selectCandidateRecord(record);
+      });
+    }
+
+    item.appendChild(info);
+    item.appendChild(btn);
+    candidateVersionsList.appendChild(item);
+  }
+}
+
+async function selectCandidateRecord(record: LrclibRecord): Promise<void> {
+  const report = manualTarget();
+  if (!report || manualApplying) return;
+  manualApplying = true;
+  renderManualLyricsControls();
+  manualLyricsStatus.textContent = `已切換為 LRCLIB ${record.id}「${record.trackName}」— ${record.artistName}。`;
+  try {
+    manualSelections.delete(report.mediaId);
+    manualSelections.set(report.mediaId, record.id);
+    if (manualSelections.size > MAX_MANUAL_SELECTIONS) manualSelections.delete(manualSelections.keys().next().value!);
+    cacheManualRecord(record);
+    persistManualSelections();
+    manualLyricsInput.value = "";
+    currentLyricsRecordId = record.id;
+    renderManualLyricsControls();
+    await startSingleDetection();
+  } catch (error) {
+    manualLyricsStatus.textContent = `切換版本失敗：${error instanceof Error ? error.message : "未知錯誤"}`;
+  } finally {
+    manualApplying = false;
+    renderManualLyricsControls();
+  }
 }
 
 async function initializeManualSelections(): Promise<void> {
@@ -1137,6 +1235,9 @@ function clearSelectedTrack(message: string): void {
   modeBadge.textContent = "等待播放來源";
   lyricsStatus.textContent = message;
   playbackSourceText.textContent = "尚未取得播放來源。";
+  availableCandidates = [];
+  currentLyricsRecordId = undefined;
+  renderCandidateVersions();
   setCaptionActionsVisible(false);
   renderLines();
 }
@@ -1338,6 +1439,9 @@ async function lookupSingleLyrics(report: PlaybackReport, operationGeneration: n
   let artistIsVerified = report.appId !== "youtube" || report.artistVerified === true || report.segmentStartMs !== undefined;
   renderLines();
   aiMatchRejectButton.hidden = true;
+  availableCandidates = [];
+  currentLyricsRecordId = undefined;
+  renderCandidateVersions();
   try {
     const lyricsFetcher = lrclibFetcher(controller.signal);
     let selection: { record: LrclibRecord; lyrics: SyncedLyrics; recordCount: number; timelineCount: number } | null = null;
@@ -1351,8 +1455,8 @@ async function lookupSingleLyrics(report: PlaybackReport, operationGeneration: n
         if (!record?.syncedLyrics) throw new Error("LRCLIB 已找不到這筆同步歌詞。");
         const lyrics = await parseRecordLyrics(record, `lrclib-${record.id}`);
         if (!isCurrent()) return;
-        if (lyrics.format === "plain" || lyrics.granularity === "none") throw new Error("這筆歌詞沒有有效時間戳。");
         selection = { record, lyrics, recordCount: 1, timelineCount: 1 };
+        availableCandidates = rankCandidateRecords([...availableCandidates, record], currentLyricsRecordId, report.durationMs);
         resolvedTrack = { title: record.trackName, artists: [record.artistName], source: "manual" };
         displayPlaybackSource(report);
         if (typeof record.duration === "number" && Math.abs(record.duration * 1000 - report.durationMs) > durationTolerance(report.durationMs)) {
@@ -1374,24 +1478,24 @@ async function lookupSingleLyrics(report: PlaybackReport, operationGeneration: n
         failuresCount = failures.length;
       }
       const exact = exactSyncedCandidatesForArtists(resultsByArtist, trackTitle, candidateArtists);
+      availableCandidates = rankCandidateRecords([...availableCandidates, ...exact, ...resultsByArtist.flat()], currentLyricsRecordId, trackDurationMs);
       exactCandidatesCount = exact.length;
       selection = await selectAutomaticLyrics(exact, candidateArtists, trackDurationMs);
-      if (!isCurrent()) return;
     }
 
     if (!selection && report.appId === "youtube" && report.segmentStartMs === undefined && report.durationMs > 0) {
       const credit = report.musicCredits ? selectYouTubeMusicCredit(report.musicCredits) : null;
       if (credit) {
-        const { candidates, failures } = await searchLyricsForIdentity({ titles: [credit.title], artists: [credit.artist] }, report.durationMs, lyricsFetcher);
+        const { candidates, allCandidates, failures } = await searchLyricsForIdentity({ titles: [credit.title], artists: [credit.artist] }, report.durationMs, lyricsFetcher);
         if (!isCurrent()) return;
         if (failures.length) {
           lyricsQueryStatus.textContent = `部分歌詞查詢失敗（${failures.length} 次）：${failures[0].artist} — ${failures[0].message} 已保留成功結果。`;
           lyricsQueryStatus.hidden = false;
           failuresCount = failures.length;
         }
+        availableCandidates = rankCandidateRecords([...availableCandidates, ...allCandidates, ...candidates], currentLyricsRecordId, report.durationMs);
         exactCandidatesCount = candidates.length;
         selection = await selectAutomaticLyrics(candidates, [credit.artist], report.durationMs);
-        if (!isCurrent()) return;
         if (selection) {
           resolvedTrack = { title: selection.record.trackName, artists: [selection.record.artistName], source: "youtube-credit" };
           displayPlaybackSource(report);
@@ -1408,31 +1512,30 @@ async function lookupSingleLyrics(report: PlaybackReport, operationGeneration: n
     }
 
     if (canGuessFromTitle && !guessRejected) {
-      const { candidates, failures } = await searchLyricsByVideoTitle(report.rawTitle ?? report.title, report.durationMs, lyricsFetcher);
+      const { candidates, allCandidates, failures } = await searchLyricsByVideoTitle(report.rawTitle ?? report.title, report.durationMs, lyricsFetcher);
       if (!isCurrent()) return;
       if (failures.length) {
         lyricsQueryStatus.textContent = `部分歌詞查詢失敗（${failures.length} 次）：${failures[0].artist} — ${failures[0].message} 已保留成功結果。`;
         lyricsQueryStatus.hidden = false;
         failuresCount = failures.length;
       }
+      availableCandidates = rankCandidateRecords([...availableCandidates, ...allCandidates, ...candidates], currentLyricsRecordId, report.durationMs);
       exactCandidatesCount = candidates.length;
       selection = await selectAutomaticLyrics(candidates, [], report.durationMs);
-      if (!isCurrent()) return;
       if (selection) {
         resolvedTrack = { title: selection.record.trackName, artists: [selection.record.artistName], source: "title-match" };
         displayPlaybackSource(report);
         setAiLookupStatus(`依影片標題比對到「${selection.record.trackName}」— ${selection.record.artistName}（LRCLIB ${selection.record.id}）；若不是這首，請按「不是這首」。`);
       }
     }
-
     if (!selection) {
       selectedLyrics = null;
       lyricsMode = false;
       updateLyricTimingControls();
       lyricsLookupPending = false;
+      renderCandidateVersions();
       setCaptionActionsVisible(true);
       renderLines();
-
       if (!candidateArtists.length) {
         lyricsStatus.textContent = "播放資訊沒有歌手，無法安全比對同步歌詞。";
         setStatus("已取得曲名，但沒有可驗證的歌手資訊。", "idle");
@@ -1449,13 +1552,15 @@ async function lookupSingleLyrics(report: PlaybackReport, operationGeneration: n
       setStatus(failuresCount ? "部分查詢失敗；目前未取得可用同步歌詞，可按「重新偵測」再查。" : `已查詢「${trackTitle}」；目前未取得相符同步歌詞。`, failuresCount ? "error" : "idle");
       return;
     }
-
     lyricsLookupPending = false;
     setCaptionActionsVisible(false);
     selectedLyrics = selection.lyrics;
     updateLyricTimingControls();
     lyricsMode = true;
     stopButton.disabled = false;
+    currentLyricsRecordId = selection.record.id;
+    availableCandidates = rankCandidateRecords([...availableCandidates, selection.record], currentLyricsRecordId, report.durationMs);
+    renderCandidateVersions();
     const automaticVersion = selection.recordCount > 1;
     modeBadge.textContent = `${resolvedTrack?.source === "manual" ? "手動指定 · " : resolvedTrack?.source === "title-match" ? "標題比對 · " : resolvedTrack?.source === "youtube-credit" ? "YouTube 曲目資訊 · " : ""}${automaticVersion ? "自動選版同步歌詞" : "單曲同步歌詞"}`;
     if (resolvedTrack?.source === "title-match") {
@@ -1463,9 +1568,8 @@ async function lookupSingleLyrics(report: PlaybackReport, operationGeneration: n
       aiMatchRejectButton.hidden = false;
     }
     lyricsStatus.textContent = automaticVersion
-      ? `已從 ${selection.recordCount} 筆相符資料、${selection.timelineCount} 種時間軸自動選版（LRCLIB ${selection.record.id}）；優先比對片長，再比對歌手。MV 片頭可能造成時間差。`
-      : `已匹配同步歌詞（LRCLIB ${selection.record.id}）；位置跟隨播放分頁。`;
-    startLyricsClock();
+      ? `已從 ${selection.recordCount} 筆相符資料、${selection.timelineCount} 種時間軸自動選版（LRCLIB ${selection.record.id}）；優先比對片長，再比對歌手。可於「設定」中切換其他版本。`
+      : `已匹配同步歌詞（LRCLIB ${selection.record.id}）；位置跟隨播放分頁。${availableCandidates.length > 1 ? "可於「設定」中切換其他版本。" : ""}`;
     renderLines();
     setStatus("歌詞隨播放進度同步。", "listening");
   } catch (error) {
@@ -1832,6 +1936,11 @@ clearManualLyricsButton.addEventListener("click", () => {
   persistManualSelections();
   renderManualLyricsControls();
   void startSingleDetection();
+});
+candidateVersionsBtn.addEventListener("click", () => {
+  settingsDialog.showModal();
+  manualLyricsDetails.open = true;
+  candidateVersionsSection.scrollIntoView({ behavior: "smooth", block: "nearest" });
 });
 openSettingsButton.addEventListener("click", () => {
   settingsDialog.showModal();

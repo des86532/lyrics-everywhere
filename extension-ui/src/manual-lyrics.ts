@@ -67,3 +67,68 @@ export function parseManualSelections(value: unknown): Map<string, number> {
   while (selections.size > MAX_MANUAL_SELECTIONS) selections.delete(selections.keys().next().value as string);
   return selections;
 }
+
+export function extractLyricSnippet(syncedLyrics?: string): string {
+  if (!syncedLyrics) return "";
+  const lines = syncedLyrics.split(/\r?\n/);
+  const snippetLines: string[] = [];
+  for (const line of lines) {
+    const text = line
+      .replace(/\[\d{2}:\d{2}(?:\.\d{1,3})?\]/g, "")
+      .replace(/<\d{2}:\d{2}(?:\.\d{1,3})?>/g, "")
+      .trim();
+    if (text && !/^\[[a-z]+:[^\]]*\]$/i.test(text)) {
+      snippetLines.push(text);
+      if (snippetLines.length >= 2) break;
+    }
+  }
+  const result = snippetLines.join(" / ");
+  return result.length > 60 ? result.slice(0, 58) + "…" : result;
+}
+
+export function formatDuration(seconds?: number): string {
+  if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds < 0) return "--:--";
+  const total = Math.round(seconds);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+export interface CandidateRecordLike {
+  id: number;
+  trackName: string;
+  artistName: string;
+  duration?: number;
+  syncedLyrics?: string;
+  albumName?: string;
+}
+
+export function rankCandidateRecords<T extends CandidateRecordLike>(
+  records: readonly T[],
+  currentId?: number,
+  targetDurationMs?: number,
+  limit = 10,
+): T[] {
+  const seenIds = new Set<number>();
+  const uniqueRecords: T[] = [];
+  for (const rec of records) {
+    if (!rec.syncedLyrics || seenIds.has(rec.id)) continue;
+    seenIds.add(rec.id);
+    uniqueRecords.push(rec);
+  }
+
+  uniqueRecords.sort((a, b) => {
+    if (currentId !== undefined) {
+      if (a.id === currentId) return -1;
+      if (b.id === currentId) return 1;
+    }
+    if (typeof targetDurationMs === "number" && targetDurationMs > 0) {
+      const aDist = typeof a.duration === "number" ? Math.abs(a.duration * 1000 - targetDurationMs) : Number.MAX_SAFE_INTEGER;
+      const bDist = typeof b.duration === "number" ? Math.abs(b.duration * 1000 - targetDurationMs) : Number.MAX_SAFE_INTEGER;
+      if (aDist !== bDist) return aDist - bDist;
+    }
+    return a.id - b.id;
+  });
+
+  return uniqueRecords.slice(0, limit);
+}

@@ -14,6 +14,7 @@
         <div class="masthead-actions">
           <button id="single-mode" class="button button-quiet" type="button" aria-label="重新偵測播放來源">重新偵測</button>
           <button id="pin-source" class="button button-quiet" type="button" aria-pressed="false" disabled>固定此分頁</button>
+          <button id="candidate-versions-btn" class="button button-quiet" type="button" hidden aria-label="切換歌詞版本" aria-haspopup="dialog">版本 (<span id="candidate-versions-count">0</span>)</button>
           <button id="open-settings" class="button button-quiet" type="button" aria-label="設定與工具" aria-haspopup="dialog">設定</button>
           <button id="stop-capture" class="button button-stop" type="button" disabled>停止</button>
         </div>
@@ -81,7 +82,11 @@
               <details id="manual-lyrics" class="disclosure manual-lyrics" name="drawer">
                 <summary>手動指定歌詞 <span id="manual-lyrics-mode">自動比對</span></summary>
                 <div class="disclosure-content">
-                  <p class="fine-print">自動比對找不到或找錯時，可自己指定這支 YouTube 影片的同步歌詞；指定結果只存在此瀏覽器。</p>
+                  <div id="candidate-versions-section" class="candidate-versions-section" hidden>
+                    <label>搜尋到的歌詞版本（點選切換）</label>
+                    <div id="candidate-versions-list" class="candidate-versions-list" role="list"></div>
+                  </div>
+                  <p class="fine-print">自動比對找不到或找錯時，可從上方清單挑選，或自行指定這支 YouTube 影片的同步歌詞；指定結果只存在此瀏覽器。</p>
                   <div class="manual-lyrics-actions">
                     <a id="open-lrclib-search" class="button button-secondary" href="https://lrclib.net/" target="_blank" rel="noopener noreferrer">到 LRCLIB 搜尋</a>
                     <button id="copy-ai-prompt" class="button button-secondary" type="button" disabled>複製 AI 提示詞</button>
