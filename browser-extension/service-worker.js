@@ -1,6 +1,11 @@
+const PLAYBACK_TAB_URLS = [
+  "https://www.youtube.com/watch*",
+  "https://music.youtube.com/watch*",
+  "https://open.spotify.com/*",
+];
 const recentReports = new Map();
-let activeCaptureTabId = null;
-
+let activeCapture = null; // { tabId, port }
+const panelPorts = new Set();
 
 function validPlaybackReport(report, senderUrl) {
   if (typeof senderUrl !== "string" || !report) return false;
@@ -35,6 +40,15 @@ function validPlaybackReport(report, senderUrl) {
   if (report.artistVerified !== undefined && typeof report.artistVerified !== "boolean") return false;
   if (report.rawTitle !== undefined && (typeof report.rawTitle !== "string" || report.rawTitle.length > 2000)) return false;
   if (report.segmentStartMs !== undefined && (!Number.isFinite(report.segmentStartMs) || report.segmentStartMs < 0)) return false;
+  if (report.musicCredits !== undefined) {
+    if (!Array.isArray(report.musicCredits) || report.musicCredits.length > 10) return false;
+    for (const credit of report.musicCredits) {
+      if (!credit || typeof credit !== "object" ||
+          typeof credit.title !== "string" || typeof credit.artist !== "string" ||
+          credit.title.trim().length < 1 || credit.title.trim().length > 120 ||
+          credit.artist.trim().length < 1 || credit.artist.trim().length > 120) return false;
+    }
+  }
   return true;
 }
 
@@ -96,12 +110,7 @@ async function requestFreshPlaybackReport(tabId) {
 }
 
 async function listPlaybackTabs() {
-  const supportedUrls = [
-    "https://www.youtube.com/watch*",
-    "https://music.youtube.com/watch*",
-    "https://open.spotify.com/*",
-  ];
-  const tabs = await chrome.tabs.query({ url: supportedUrls });
+  const tabs = await chrome.tabs.query({ url: PLAYBACK_TAB_URLS });
   return tabs.flatMap((tab) => {
     const appId = supportedPlaybackPage(tab?.url);
     if (!appId || !Number.isSafeInteger(tab?.id)) return [];
@@ -113,34 +122,86 @@ async function listPlaybackTabs() {
   });
 }
 
- 
+function reserveCapture(tabId, mode) {
+  if (!Number.isSafeInteger(tabId) || mode !== "mix-first") {
+    return { ok: false, error: "不支援的擷取要求。" };
+  }
+  const report = recentReports.get(tabId);
+  const absolutePositionMs = report ? (report.segmentStartMs ?? 0) + report.positionMs : Number.POSITIVE_INFINITY;
+  const mediaDurationMs = report?.mediaDurationMs ?? report?.durationMs ?? 0;
+  if (activeCapture !== null) {
+    return { ok: false, error: "已有分頁正在擷取音訊；請先停止目前工作。" };
+  }
+  if (!report || report.appId !== "youtube" || mediaDurationMs <= 0 ||
+    Date.now() - report.capturedAtMs > 3000) {
+    return { ok: false, error: "請切回正在播放的 YouTube /watch 分頁，確認播放資訊正常，再重新授權。" };
+  }
+  if (mode === "mix-first" && (report.state !== "paused" ||
+    absolutePositionMs > 2000 || report.playbackRate !== 1)) {
+    return { ok: false, error: "請切回要建立字幕的 YouTube /watch 分頁，確認影片停在 0 秒、1×，再重新授權。" };
+  }
+  return { ok: true };
+}
+
+async function broadcastListening(listening) {
+  let tabs = [];
+  try {
+    tabs = await chrome.tabs.query({ url: PLAYBACK_TAB_URLS });
+  } catch {
+    tabs = [];
+  }
+  for (const tab of tabs) {
+    if (Number.isSafeInteger(tab?.id)) {
+      chrome.tabs.sendMessage(tab.id, { type: "playback-listening", listening }).catch(() => {});
+    }
+  }
+}
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.sender?.id !== chrome.runtime.id) {
+    try { port.disconnect(); } catch {}
+    return;
+  }
+  if (port.name === "side-panel") {
+    panelPorts.add(port);
+    if (panelPorts.size === 1) {
+      void broadcastListening(true);
+    }
+    port.onDisconnect.addListener(() => {
+      panelPorts.delete(port);
+      if (panelPorts.size === 0) {
+        void broadcastListening(false);
+      }
+    });
+  } else if (port.name === "tab-capture") {
+    port.onMessage.addListener((message) => {
+      if (message?.type === "reserve-tab-capture") {
+        const r = reserveCapture(message.tabId, message.mode);
+        if (r.ok) {
+          activeCapture = { tabId: message.tabId, port };
+        }
+        port.postMessage({ type: "reserve-tab-capture-result", ...r });
+      }
+    });
+    port.onDisconnect.addListener(() => {
+      if (activeCapture?.port === port) {
+        activeCapture = null;
+      }
+    });
+  }
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  recentReports.delete(tabId);
+  if (activeCapture?.tabId === tabId) {
+    try { activeCapture.port.disconnect(); } catch {}
+    activeCapture = null;
+  }
+});
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "has-active-tab-capture" && sender.id === chrome.runtime.id) {
-    sendResponse({ active: activeCaptureTabId !== null });
-    return;
-  }
-  if (message?.type === "reserve-tab-capture" && sender.id === chrome.runtime.id && Number.isSafeInteger(message.tabId) &&
-      message.mode === "mix-first") {
-    const report = recentReports.get(message.tabId);
-    const absolutePositionMs = report ? (report.segmentStartMs ?? 0) + report.positionMs : Number.POSITIVE_INFINITY;
-    const mediaDurationMs = report?.mediaDurationMs ?? report?.durationMs ?? 0;
-    if (activeCaptureTabId !== null) {
-      sendResponse({ ok: false, error: "已有分頁正在擷取音訊；請先停止目前工作。" });
-    } else if (!report || report.appId !== "youtube" || mediaDurationMs <= 0 ||
-      Date.now() - report.capturedAtMs > 3000) {
-      sendResponse({ ok: false, error: "請切回正在播放的 YouTube /watch 分頁，確認播放資訊正常，再重新授權。" });
-    } else if (message.mode === "mix-first" && (report.state !== "paused" ||
-      absolutePositionMs > 2000 || report.playbackRate !== 1)) {
-      sendResponse({ ok: false, error: "請切回要建立字幕的 YouTube /watch 分頁，確認影片停在 0 秒、1×，再重新授權。" });
-    } else {
-      activeCaptureTabId = message.tabId;
-      sendResponse({ ok: true });
-    }
-    return;
-  }
-  if (message?.type === "release-tab-capture" && sender.id === chrome.runtime.id && message.tabId === activeCaptureTabId) {
-    activeCaptureTabId = null;
-    sendResponse({ ok: true });
+    sendResponse({ active: activeCapture !== null });
     return;
   }
   if (message?.type === "list-playback-tabs" && sender.id === chrome.runtime.id) {
@@ -165,6 +226,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return;
   }
   recentReports.set(sender.tab.id, message.report);
-  void chrome.runtime.sendMessage({ type: "playback-state", tabId: sender.tab.id, report: message.report }).catch(() => {});
-  sendResponse?.({ ok: true, tabId: sender.tab.id, report: message.report });
+  if (panelPorts.size > 0) {
+    void chrome.runtime.sendMessage({ type: "playback-state", tabId: sender.tab.id, report: message.report }).catch(() => {});
+  }
+  sendResponse?.({ ok: true, tabId: sender.tab.id, report: message.report, listening: panelPorts.size > 0 });
 });

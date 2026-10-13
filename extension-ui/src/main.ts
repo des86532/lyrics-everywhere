@@ -6,8 +6,8 @@ import { TranscriberRegistry } from "../../src/pronunciation/transcriber-registr
 import type { PhoneticSystem } from "../../src/domain/types.js";
 import { TranscriptLines, type TranscriptLine, type TimestampedChunk } from "./transcript-lines.js";
 import type { SyncedLyrics } from "../../src/domain/types.js";
-import { durationTolerance, fetchLrclibRecord, parseRecordLyrics, searchLyricsByVideoTitle, searchLyricsForArtists, searchLyricsForIdentity, selectAutomaticLyrics, type LrclibRecord } from "./lyrics.js";
-import { fetchYouTubeMusicCredit, type YouTubeMusicCredit } from "./youtube-music-credit.js";
+import { durationTolerance, fetchLrclibRecord, lrclibFetcher, parseRecordLyrics, searchLyricsByVideoTitle, searchLyricsForArtists, searchLyricsForIdentity, selectAutomaticLyrics, type LrclibRecord } from "./lyrics.js";
+import { selectYouTubeMusicCredit, type YouTubeMusicCredit } from "./youtube-music-credit.js";
 import { exactSyncedCandidatesForArtists, lyricWindowStart, LYRICS_WINDOW_SIZE, mixReplayWindow, playbackPositionAt, playbackTrackPositionAt, specialVideoKind, titleLookupKeyword, type PlaybackReport, type SpecialVideoKind } from "./playback.js";
 import { MANUAL_LYRICS_STORAGE_KEY, MAX_MANUAL_SELECTIONS, manualLyricsPrompt, parseManualLyricsInput, parseManualSelections } from "./manual-lyrics.js";
 import { formatLyricOffset, isValidLyricOffset, lyricPositionForVideo, parseLyricOffset } from "./lyric-timing.js";
@@ -38,6 +38,7 @@ type ExtensionApi = {
     id: string;
     sendMessage(message: unknown): Promise<unknown>;
     onMessage: { addListener(listener: (message: ExtensionMessage) => void): void };
+    connect?(info: { name: string }): { onDisconnect: { addListener(listener: () => void): void } };
   };
   tabs: {
     query(query: { active: true; lastFocusedWindow: true }): Promise<Array<{ id?: number }>>;
@@ -63,6 +64,14 @@ function isPlaybackReport(value: unknown): value is PlaybackReport {
     (report.mediaDurationMs === undefined || Number.isFinite(report.mediaDurationMs) && report.mediaDurationMs > 0) &&
     (report.artistVerified === undefined || typeof report.artistVerified === "boolean") &&
     (report.rawTitle === undefined || typeof report.rawTitle === "string" && report.rawTitle.length <= 2000) &&
+    (report.musicCredits === undefined || Array.isArray(report.musicCredits) && report.musicCredits.length <= 10 &&
+      report.musicCredits.every((c) =>
+        c && typeof c === "object" &&
+        "title" in c && typeof c.title === "string" &&
+        "artist" in c && typeof c.artist === "string" &&
+        c.title.trim().length >= 1 && c.title.trim().length <= 120 &&
+        c.artist.trim().length >= 1 && c.artist.trim().length <= 120
+      )) &&
     Number.isFinite(report.playbackRate) && (report.playbackRate ?? -1) >= 0 &&
     Number.isFinite(report.capturedAtMs) && Math.abs(Date.now() - (report.capturedAtMs ?? 0)) <= 3000;
 }
@@ -122,7 +131,6 @@ let manualApplying = false;
 let manualSearchTitle: string | null = null;
 let singleLookupController: AbortController | null = null;
 let resolvedTrack: { title: string; artists: string[]; source: "youtube-credit" | "title-match" | "manual" } | null = null;
-const youtubeCreditCache = new Map<string, YouTubeMusicCredit | null>();
 const AI_REJECTED_STORAGE_KEY = "aiRejectedVideoIds";
 let aiRejectedVideoIds: string[] = [];
 type PlaybackTab = { tabId: number; title: string; appId: PlaybackReport["appId"] };
@@ -931,7 +939,7 @@ async function applyManualLyrics(): Promise<void> {
   try {
     let record: LrclibRecord;
     if (parsed.kind === "lrclib-id") {
-      const found = manualRecordCache.get(parsed.id) ?? await fetchLrclibRecord(parsed.id);
+      const found = manualRecordCache.get(parsed.id) ?? await fetchLrclibRecord(parsed.id, lrclibFetcher());
       if (!found) {
         manualLyricsStatus.textContent = `LRCLIB 沒有編號 ${parsed.id} 的歌曲。`;
         return;
@@ -942,7 +950,7 @@ async function applyManualLyrics(): Promise<void> {
       }
       record = found;
     } else {
-      const { candidates, failures } = await searchLyricsByVideoTitle(`${parsed.artist} - ${parsed.title}`, report.durationMs);
+      const { candidates, failures } = await searchLyricsByVideoTitle(`${parsed.artist} - ${parsed.title}`, report.durationMs, lrclibFetcher());
       const selection = await selectAutomaticLyrics(candidates, [parsed.artist], report.durationMs);
       if (!selection) {
         manualLyricsStatus.textContent = `LRCLIB 沒有片長相符的「${parsed.title}」— ${parsed.artist} 同步歌詞；可按「到 LRCLIB 搜尋」自行挑選版本後貼上連結。${failures.length > 0 ? "（部分查詢失敗，可稍後再試）" : ""}`;
@@ -1200,19 +1208,27 @@ function receivePlaybackMessage(message: ExtensionMessage): void {
   if (trackChanged) {
     clearSelectedTrack("播放來源、曲目或影片已切換；舊歌詞已清除。");
   }
+  const creditsArrived = singalongMode === "single" && !firstReport && !trackChanged && playbackReport?.musicCredits === undefined && next.musicCredits !== undefined && !lyricsMode;
   playbackReport = next;
   updateLyricTimingControls();
   displayPlaybackSource(next);
   if (singalongMode === "single" && !lyricsMode) modeBadge.textContent = specialVideo ? SPECIAL_VIDEO_COPY[specialVideo].badge : "已取得播放來源";
   if (singalongMode === "mix-first") processMixPlaybackReport(next);
   if (singalongMode === "mix-replay") renderMixReplay(next);
-  if ((firstReport || trackChanged) && singalongMode === "single") void lookupSingleLyrics(next, singleOperationGeneration);
+  if ((firstReport || trackChanged || creditsArrived) && singalongMode === "single") void lookupSingleLyrics(next, singleOperationGeneration);
   if (lyricsMode) renderSelectedLyrics();
   updateCaptionControls();
 }
 
 if (chromeApi) {
   chromeApi.runtime.onMessage.addListener(receivePlaybackMessage);
+  function connectPanelPort(): void {
+    const port = chromeApi?.runtime.connect?.({ name: "side-panel" });
+    port?.onDisconnect.addListener(() => {
+      setTimeout(connectPanelPort, 1000);
+    });
+  }
+  connectPanelPort();
   chromeApi.tabs.onActivated.addListener(({ tabId }) => {
     void (async () => {
       const tabs = await refreshSourceTabs();
@@ -1320,7 +1336,7 @@ async function lookupSingleLyrics(report: PlaybackReport, operationGeneration: n
   renderLines();
   aiMatchRejectButton.hidden = true;
   try {
-    const lyricsFetcher: typeof fetch = (input, init) => fetch(input, { ...init, signal: controller.signal });
+    const lyricsFetcher = lrclibFetcher(controller.signal);
     let selection: { record: LrclibRecord; lyrics: SyncedLyrics; recordCount: number; timelineCount: number } | null = null;
     let exactCandidatesCount = 0;
     let failuresCount = 0;
@@ -1361,19 +1377,7 @@ async function lookupSingleLyrics(report: PlaybackReport, operationGeneration: n
     }
 
     if (!selection && report.appId === "youtube" && report.segmentStartMs === undefined && report.durationMs > 0) {
-      let credit: YouTubeMusicCredit | null = null;
-      if (youtubeCreditCache.has(report.mediaId)) {
-        credit = youtubeCreditCache.get(report.mediaId) ?? null;
-      } else {
-        try {
-          credit = await fetchYouTubeMusicCredit(report.mediaId, lyricsFetcher);
-          if (!isCurrent()) return;
-          if (youtubeCreditCache.size >= 50) youtubeCreditCache.delete(youtubeCreditCache.keys().next().value!);
-          youtubeCreditCache.set(report.mediaId, credit);
-        } catch {
-          if (!isCurrent()) return;
-        }
-      }
+      const credit = report.musicCredits ? selectYouTubeMusicCredit(report.musicCredits) : null;
       if (credit) {
         const { candidates, failures } = await searchLyricsForIdentity({ titles: [credit.title], artists: [credit.artist] }, report.durationMs, lyricsFetcher);
         if (!isCurrent()) return;

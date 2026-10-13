@@ -5,7 +5,47 @@
   window[lifecycleKey] = lifecycle;
   const sessionId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
   const TRACK_ID_PATTERN = /^[A-Za-z0-9]{22}$/;
+  let listening = true;
+  let lastSentAt = 0;
+
+  function contextInvalidated(error) {
+    return /extension context invalidated/i.test(error?.message || "");
+  }
+
+  function send(message) {
+    lastSentAt = Date.now();
+    let result;
+    try {
+      result = chrome.runtime.sendMessage(message);
+    } catch (error) {
+      if (contextInvalidated(error)) lifecycle.stop();
+      throw error;
+    }
+    return Promise.resolve(result).then(
+      (response) => {
+        if (typeof response?.listening === "boolean") listening = response.listening;
+        return response;
+      },
+      (error) => {
+        if (contextInvalidated(error)) lifecycle.stop();
+        throw error;
+      }
+    );
+  }
+
+  function reportInBackground(reason) {
+    if (!listening && reason !== "event" && Date.now() - lastSentAt < 10000) return;
+    try {
+      Promise.resolve(report()).catch(() => {});
+    } catch {}
+  }
+
   const onRuntimeMessage = (message, _sender, sendResponse) => {
+    if (message?.type === "playback-listening") {
+      listening = message.listening === true;
+      if (listening) reportInBackground("event");
+      return;
+    }
     if (message?.type !== "request-playback-report") return;
     Promise.resolve(report()).then(sendResponse, (error) => sendResponse({
       ok: false, error: `Spotify 頁面無法傳送播放報告：${error.message}`,
@@ -41,21 +81,17 @@
       .map(text).filter(Boolean).slice(0, 8);
     if (!title || artists.length === 0) return;
 
-    const controls = document.querySelector('[data-testid="control-button-playpause"]');
-    const controlLabel = controls?.getAttribute("aria-label")?.trim();
-    if (!controls || (controlLabel !== "Pause" && controlLabel !== "Play")) return;
-    const state = controlLabel === "Pause" ? "playing" : "paused";
-
     const media = [...document.querySelectorAll("audio, video")]
       .find((element) => Number.isFinite(element.duration) && element.duration > 0);
-    if (!media || media.paused !== (state === "paused")) return;
+    if (!media) return;
+    const state = media.paused ? "paused" : "playing";
 
     const positionMs = parseTime(text(document.querySelector('[data-testid="playback-position"]')));
     const durationMs = parseTime(text(document.querySelector('[data-testid="playback-duration"]')));
     if (positionMs === null || durationMs === null || durationMs <= 0 || positionMs > durationMs) return;
     if (Math.abs(media.duration * 1000 - durationMs) > 3000 || Math.abs(media.currentTime * 1000 - positionMs) > 3000) return;
 
-    return chrome.runtime.sendMessage({ type: "playback-report", report: {
+    return send({ type: "playback-report", report: {
       version: 2,
       sessionId,
       appId: "spotify-web",
@@ -71,7 +107,9 @@
     }});
   }
 
-  const intervalId = setInterval(report, 1000);
+  const intervalId = setInterval(() => {
+    reportInBackground("tick");
+  }, 1000);
   lifecycle.stop = () => {
     try { clearInterval(intervalId); } catch {}
     try { chrome.runtime.onMessage.removeListener?.(onRuntimeMessage); } catch {}

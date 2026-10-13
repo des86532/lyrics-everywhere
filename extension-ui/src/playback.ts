@@ -19,6 +19,7 @@ export type PlaybackReport = {
   durationMs: number;
   playbackRate: number;
   capturedAtMs: number;
+  musicCredits?: { title: string; artist: string }[];
 };
 
 export function playbackPositionAt(report: PlaybackReport, now: number): number {

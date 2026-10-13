@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
-import { fetchLrclibRecord, LyricsHttpError, parseRecordLyrics, searchLyrics, searchLyricsByVideoTitle, searchLyricsForArtists, searchLyricsForIdentity, selectAutomaticLyrics } from "../extension-ui/src/lyrics.js";
+import { fetchLrclibRecord, LyricsHttpError, lrclibFetcher, parseRecordLyrics, searchLyrics, searchLyricsByVideoTitle, searchLyricsForArtists, searchLyricsForIdentity, selectAutomaticLyrics } from "../extension-ui/src/lyrics.js";
 
 const record = (syncedLyrics?: string) => ({ id: 42, trackName: "Haru Haru", artistName: "BIGBANG", syncedLyrics });
 
@@ -194,5 +194,29 @@ describe("browser lyrics helpers", () => {
     };
     const { candidates } = await searchLyricsByVideoTitle("Capper, Apex, LEGGO - 无人区玫瑰", 226_000, fetcher, [0]);
     expect(candidates.map((candidate) => candidate.id)).toEqual([38664232]);
+  });
+
+  it("times out LRCLIB requests with custom error and preserves AbortError for external cancellation", async () => {
+    vi.stubGlobal("fetch", (_i: unknown, init: { signal: AbortSignal }) => {
+      const { promise, reject } = Promise.withResolvers<Response>();
+      if (init.signal.aborted) {
+        reject(init.signal.reason);
+      } else {
+        init.signal.addEventListener("abort", () => reject(init.signal.reason));
+      }
+      return promise;
+    });
+
+    try {
+      await expect(lrclibFetcher(undefined, 20)("https://lrclib.net/api/get/1"))
+        .rejects.toThrow("LRCLIB 回應逾時（0.02 秒）。");
+
+      const controller = new AbortController();
+      controller.abort();
+      await expect(lrclibFetcher(controller.signal, 20)("https://lrclib.net/api/get/1"))
+        .rejects.toMatchObject({ name: "AbortError" });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

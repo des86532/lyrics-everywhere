@@ -44,6 +44,9 @@ function kuromojiAssets(): Plugin {
         "kuromoji-NOTICE.md",
         "wanakana-LICENSE",
         "opencc-js-LICENSE",
+        "transformers-LICENSE",
+        "onnxruntime-web-LICENSE",
+        "whisper-NOTICE.md",
       ]) {
         this.emitFile({
           type: "asset",
