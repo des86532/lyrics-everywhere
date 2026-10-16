@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "minimum_chrome_version": "116",
   "name": "Lyrics Everywhere 耳邊字幕",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "在 YouTube、YouTube Music、Spotify Web 播放時於側欄顯示 LRCLIB 同步歌詞與空耳；無同步歌詞的 YouTube 影片可在本機辨識建立字幕。",
   "homepage_url": "https://github.com/des86532/lyrics-everywhere",
   "icons": {
