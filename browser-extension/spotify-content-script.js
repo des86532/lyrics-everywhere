@@ -70,59 +70,93 @@
     return ((hours * 60 + minutes) * 60 + seconds) * 1000;
   }
 
-  // Spotify's now-playing title may link to the album with the track in the query (e.g. /album/<id>?highlight=spotify:track:<id>).
-  function trackIdFromHref(href) {
-    let url;
-    try { url = new URL(href); } catch { return ""; }
-    if (url.hostname !== "open.spotify.com") return "";
-    const fromPath = url.pathname.match(/\/track\/([A-Za-z0-9]{22})(?:\/|$)/)?.[1];
-    if (fromPath) return fromPath;
-    for (const value of url.searchParams.values()) {
-      const fromUri = value.match(/^spotify:track:([A-Za-z0-9]{22})$/)?.[1];
-      if (fromUri) return fromUri;
+  // The now-playing widget links to the album/playlist context, not the track, and Spotify
+  // keeps no <audio>/<video> element in the DOM. The track ID comes from the visible tracklist
+  // row with the same title and artist; position and duration come from the progress slider.
+  function trackIdFromTracklist(title, artists) {
+    const ids = new Set();
+    for (const row of document.querySelectorAll('[data-testid="tracklist-row"]')) {
+      const link = row.querySelector('a[data-testid="internal-track-link"]');
+      if (!link || text(link) !== title) continue;
+      const rowArtists = [...row.querySelectorAll('a[href^="/artist/"]')].map(text);
+      if (rowArtists.length > 0 && !rowArtists.some((name) => artists.includes(name))) continue;
+      const id = link.getAttribute("href")?.match(/^\/track\/([A-Za-z0-9]{22})(?:[/?#]|$)/)?.[1];
+      if (id) ids.add(id);
     }
-    return "";
+    return ids.size === 1 ? [...ids][0] : "";
   }
 
-  function report() {
+  const SAMPLE_GAP_MS = 1200;
+  const MIN_SAMPLE_GAP_MS = 1000;
+  const MAX_SAMPLE_AGE_MS = 3000;
+  let lastSample = null;
+  let trackIdCache = null;
+
+  function readSnapshot() {
     const player = document.querySelector('[data-testid="now-playing-widget"]');
-    if (!player) return;
+    if (!player) return null;
 
-    let trackLink = null;
-    let trackId = "";
-    for (const link of player.querySelectorAll("a[href]")) {
-      trackId = trackIdFromHref(link.href);
-      if (trackId) { trackLink = link; break; }
-    }
-    if (!TRACK_ID_PATTERN.test(trackId)) return;
-
-    const title = text(player.querySelector('[data-testid="context-item-info-title"]')) || text(trackLink);
+    const title = text(player.querySelector('[data-testid="context-item-info-title"]'));
     const artists = [...player.querySelectorAll('[data-testid="context-item-info-artist"]')]
       .map(text).filter(Boolean).slice(0, 8);
-    if (!title || artists.length === 0) return;
+    if (!title || artists.length === 0) return null;
 
-    const media = [...document.querySelectorAll("audio, video")]
-      .find((element) => Number.isFinite(element.duration) && element.duration > 0);
-    if (!media) return;
-    const state = media.paused ? "paused" : "playing";
+    // A virtualized list can scroll the playing row out of the DOM; keep the ID for the same song and context.
+    const context = player.querySelector('[data-testid="context-item-link"]')?.getAttribute("href") || "";
+    const cacheKey = [title, ...artists, context].join("\n");
+    const mediaId = trackIdFromTracklist(title, artists) || (trackIdCache?.key === cacheKey ? trackIdCache.id : "");
+    if (!TRACK_ID_PATTERN.test(mediaId)) return null;
+    trackIdCache = { key: cacheKey, id: mediaId };
+
+    const slider = document.querySelector('[data-testid="playback-progressbar"] input[type="range"]');
+    const rawPosition = slider?.getAttribute("value");
+    const rawDuration = slider?.getAttribute("max");
+    if (rawPosition == null || rawDuration == null) return null;
+    const positionMs = Math.round(Number(rawPosition));
+    const durationMs = Math.round(Number(rawDuration));
+    if (!Number.isFinite(positionMs) || !Number.isFinite(durationMs) || positionMs < 0 || durationMs <= 0 || positionMs > durationMs) return null;
 
     const clockPositionMs = parseTime(text(document.querySelector('[data-testid="playback-position"]')));
-    const durationMs = parseTime(text(document.querySelector('[data-testid="playback-duration"]')));
-    if (clockPositionMs === null || durationMs === null || durationMs <= 0 || clockPositionMs > durationMs) return;
-    if (Math.abs(media.duration * 1000 - durationMs) > 3000 || Math.abs(media.currentTime * 1000 - clockPositionMs) > 3000) return;
-    const positionMs = Math.round(media.currentTime * 1000);
+    const clockDurationMs = parseTime(text(document.querySelector('[data-testid="playback-duration"]')));
+    if (clockPositionMs === null || clockDurationMs === null) return null;
+    if (Math.abs(durationMs - clockDurationMs) > 3000 || Math.abs(positionMs - clockPositionMs) > 3000) return null;
+
+    return { mediaId, title, artists, positionMs, durationMs, at: Date.now() };
+  }
+
+  async function report() {
+    let snapshot = readSnapshot();
+    if (!snapshot) return;
+
+    // Spotify exposes no paused flag, so state comes from whether the position advanced between samples.
+    let base = lastSample?.mediaId === snapshot.mediaId && snapshot.at - lastSample.at <= MAX_SAMPLE_AGE_MS ? lastSample : null;
+    if (!base) {
+      lastSample = base = snapshot;
+      await new Promise((resolve) => setTimeout(resolve, SAMPLE_GAP_MS));
+      snapshot = readSnapshot();
+      if (!snapshot || snapshot.mediaId !== base.mediaId) return;
+    }
+    // The slider value updates about once a second, so a shorter gap would read a playing track as paused.
+    let state = base.state;
+    const elapsed = snapshot.at - base.at;
+    if (elapsed >= MIN_SAMPLE_GAP_MS) {
+      const moved = snapshot.positionMs - base.positionMs;
+      state = moved >= 300 && moved <= elapsed + 1500 ? "playing" : "paused";
+      lastSample = { ...snapshot, state };
+    }
+    if (!state) return;
 
     return send({ type: "playback-report", report: {
       version: 2,
       sessionId,
       appId: "spotify-web",
-      pageUrl: `https://open.spotify.com/track/${trackId}`,
-      mediaId: trackId,
-      title,
-      artists,
+      pageUrl: `https://open.spotify.com/track/${snapshot.mediaId}`,
+      mediaId: snapshot.mediaId,
+      title: snapshot.title,
+      artists: snapshot.artists,
       state,
-      positionMs,
-      durationMs,
+      positionMs: snapshot.positionMs,
+      durationMs: snapshot.durationMs,
       playbackRate: 1,
       capturedAtMs: Date.now()
     }});
