@@ -70,16 +70,31 @@
     return ((hours * 60 + minutes) * 60 + seconds) * 1000;
   }
 
+  // Spotify's now-playing title may link to the album with the track in the query (e.g. /album/<id>?highlight=spotify:track:<id>).
+  function trackIdFromHref(href) {
+    let url;
+    try { url = new URL(href); } catch { return ""; }
+    if (url.hostname !== "open.spotify.com") return "";
+    const fromPath = url.pathname.match(/\/track\/([A-Za-z0-9]{22})(?:\/|$)/)?.[1];
+    if (fromPath) return fromPath;
+    for (const value of url.searchParams.values()) {
+      const fromUri = value.match(/^spotify:track:([A-Za-z0-9]{22})$/)?.[1];
+      if (fromUri) return fromUri;
+    }
+    return "";
+  }
+
   function report() {
     const player = document.querySelector('[data-testid="now-playing-widget"]');
     if (!player) return;
 
-    const trackLink = player.querySelector('a[href*="/track/"]');
-    if (!trackLink) return;
-    let trackUrl;
-    try { trackUrl = new URL(trackLink.href); } catch { return; }
-    const trackId = trackUrl.pathname.match(/\/track\/([A-Za-z0-9]{22})(?:\/|$)/)?.[1] || "";
-    if (trackUrl.hostname !== "open.spotify.com" || !TRACK_ID_PATTERN.test(trackId)) return;
+    let trackLink = null;
+    let trackId = "";
+    for (const link of player.querySelectorAll("a[href]")) {
+      trackId = trackIdFromHref(link.href);
+      if (trackId) { trackLink = link; break; }
+    }
+    if (!TRACK_ID_PATTERN.test(trackId)) return;
 
     const title = text(player.querySelector('[data-testid="context-item-info-title"]')) || text(trackLink);
     const artists = [...player.querySelectorAll('[data-testid="context-item-info-artist"]')]

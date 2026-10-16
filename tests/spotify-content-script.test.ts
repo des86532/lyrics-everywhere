@@ -7,37 +7,37 @@ const spotifyContentScript = readFileSync(
   "utf8"
 );
 
-const runScript = (href: string, clock: { currentTime?: number; position?: string; duration?: string; mediaDuration?: number } = {}, listening = true, queryReply: { listening: boolean } | undefined = undefined) => {
+const runScript = (href: string, options: { currentTime?: number; position?: string; duration?: string; mediaDuration?: number; trackHref?: string } = {}, listening = true, queryReply: { listening: boolean } | undefined = undefined) => {
     const sent: Array<{ type: string }> = [];
     const reports: Array<{ report: Record<string, unknown> }> = [];
     let tick: (() => void) | undefined;
 
     const media = {
-      duration: clock.mediaDuration ?? 180,
-      currentTime: clock.currentTime ?? 30,
+      duration: options.mediaDuration ?? 180,
+      currentTime: options.currentTime ?? 30,
       paused: false,
     };
 
     const trackLink = {
-      href: "https://open.spotify.com/track/11dFghVXANMlKmJXsNCbNl",
+      href: options.trackHref ?? "https://open.spotify.com/track/11dFghVXANMlKmJXsNCbNl",
       textContent: "Super Shy",
     };
 
     const titleElement = { textContent: "Super Shy" };
     const artistElement = { textContent: "NewJeans" };
-    const positionElement = { textContent: clock.position ?? "0:30" };
-    const durationElement = { textContent: clock.duration ?? "3:00" };
+    const positionElement = { textContent: options.position ?? "0:30" };
+    const durationElement = { textContent: options.duration ?? "3:00" };
     const controlButton = {
       getAttribute: (attr: string) => (attr === "aria-label" ? "일시정지" : null),
     };
 
     const player = {
       querySelector: (selector: string) => {
-        if (selector === 'a[href*="/track/"]') return trackLink;
         if (selector === '[data-testid="context-item-info-title"]') return titleElement;
         return null;
       },
       querySelectorAll: (selector: string) => {
+        if (selector === "a[href]") return [trackLink];
         if (selector === '[data-testid="context-item-info-artist"]') return [artistElement];
         return [];
       },
@@ -82,7 +82,7 @@ const runScript = (href: string, clock: { currentTime?: number; position?: strin
     });
 
     tick?.();
-    return Object.assign(reports, { sent, tick });
+    return Object.assign(reports, { sent, tick, trackLink, titleElement });
 };
 
 describe("Spotify content script", () => {
@@ -131,5 +131,36 @@ describe("Spotify content script", () => {
   it("reports the canonical track page URL when playing from a playlist page", () => {
     const reports = runScript("https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M");
     expect(reports[0]?.report.pageUrl).toBe("https://open.spotify.com/track/11dFghVXANMlKmJXsNCbNl");
+  });
+
+  it("reads the track ID from an album link's spotify:track query", () => {
+    const reports = runScript("https://open.spotify.com/album/0Kjrj9VlwLkuAWb1FugHoi", {
+      trackHref: "https://open.spotify.com/album/0Kjrj9VlwLkuAWb1FugHoi?highlight=spotify:track:11dFghVXANMlKmJXsNCbNl",
+    });
+    expect(reports[0]?.report).toMatchObject({
+      mediaId: "11dFghVXANMlKmJXsNCbNl",
+      pageUrl: "https://open.spotify.com/track/11dFghVXANMlKmJXsNCbNl",
+    });
+  });
+
+  it("follows the now-playing widget when the album page URL does not change", () => {
+    const run = runScript("https://open.spotify.com/album/0Kjrj9VlwLkuAWb1FugHoi", {
+      trackHref: "https://open.spotify.com/album/0Kjrj9VlwLkuAWb1FugHoi?highlight=spotify:track:11dFghVXANMlKmJXsNCbNl",
+    });
+    expect(run.at(-1)?.report.mediaId).toBe("11dFghVXANMlKmJXsNCbNl");
+    run.trackLink.href = "https://open.spotify.com/album/0Kjrj9VlwLkuAWb1FugHoi?highlight=spotify:track:5sdQOyqq2IDhvmx2lHOpwd";
+    run.titleElement.textContent = "Stars - Instrumental";
+    run.tick?.();
+    expect(run.at(-1)?.report).toMatchObject({
+      mediaId: "5sdQOyqq2IDhvmx2lHOpwd",
+      title: "Stars - Instrumental",
+      pageUrl: "https://open.spotify.com/track/5sdQOyqq2IDhvmx2lHOpwd",
+    });
+  });
+
+  it("sends no report when the now-playing links carry no track ID", () => {
+    expect(runScript("https://open.spotify.com/album/0Kjrj9VlwLkuAWb1FugHoi", {
+      trackHref: "https://open.spotify.com/album/0Kjrj9VlwLkuAWb1FugHoi",
+    })).toHaveLength(0);
   });
 });
