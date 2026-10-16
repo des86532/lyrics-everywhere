@@ -216,6 +216,7 @@ export function koreanToBlendedHomophone(
   const phonologyItems = applyKoreanPhonology(text);
 
   let cursor = 0;
+  let itemIndex = 0; // phonologyItems is indexed by code point, cursor by UTF-16 unit
 
   while (cursor < text.length) {
     // A. 先檢查片語詞典 (Tier 1: 最長匹配)
@@ -254,11 +255,12 @@ export function koreanToBlendedHomophone(
         tier: "phrase",
       });
       cursor += matchedKey.length;
+      itemIndex += matchedKey.length; // phrase keys are BMP-only Hangul
       continue;
     }
 
     // B. 未命中片語，取得目前音韻處理後的字元
-    const char = text[cursor]!;
+    const char = String.fromCodePoint(text.codePointAt(cursor)!);
     if (!isHangulChar(char)) {
       displayParts.push(char);
       syllables.push({
@@ -276,12 +278,13 @@ export function koreanToBlendedHomophone(
         displayText: char,
         tier: "passthrough",
       });
-      cursor++;
+      cursor += char.length;
+      itemIndex++;
       continue;
     }
 
     // 取出整行音韻序列中對應的表面發音音節
-    const item = phonologyItems[cursor] || decomposeHangulChar(char);
+    const item = phonologyItems[itemIndex] || decomposeHangulChar(char);
     const isMedial = cursor > 0 && text[cursor - 1] !== " ";
 
     const surface: SurfaceSyllable = {
@@ -297,6 +300,7 @@ export function koreanToBlendedHomophone(
     syllables.push(blended);
 
     cursor++;
+    itemIndex++;
   }
 
   const displayText = displayParts.join("").replace(/\s+/g, " ").trim();

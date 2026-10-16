@@ -41,4 +41,12 @@ describe("Korean Phonology & Homophone Engine", () => {
     const { displayText } = koreanToBlendedHomophone("사랑해", ["latin"], "standard");
     expect(displayText).toBe("saranghae");
   });
+
+  it("keeps Hangul phonology aligned after astral characters", () => {
+    const plain = koreanToBlendedHomophone("좋다 사랑해");
+    const withEmoji = koreanToBlendedHomophone("🎵좋다 사랑해");
+    expect(withEmoji.displayText).toBe("🎵" + plain.displayText);
+    expect(withEmoji.syllables[0]?.sourceText).toBe("🎵");
+    expect(withEmoji.syllables.slice(1).map((syllable) => syllable.displayText)).toEqual(plain.syllables.map((syllable) => syllable.displayText));
+  });
 });

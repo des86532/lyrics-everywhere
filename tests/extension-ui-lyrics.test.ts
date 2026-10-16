@@ -10,8 +10,8 @@ describe("browser lyrics helpers", () => {
     const parsed = await parseRecordLyrics(record(raw), "bigbang-haru-haru");
     expect(parsed.contentHash).toBe(createHash("sha256").update(raw).digest("hex"));
     expect(parsed.format).toBe("lrc");
-    expect(parsed.lines[0]?.startMs).toBe(1500);
-    expect(parsed.lines[0]?.tokens?.map((token) => [token.text, token.startMs, token.endMs])).toEqual([["보고", 1500, 2000], ["싶다", 2000, undefined]]);
+    expect(parsed.lines[0]?.startMs).toBe(500);
+    expect(parsed.lines[0]?.tokens?.map((token) => [token.text, token.startMs, token.endMs])).toEqual([["보고", 500, 1000], ["싶다", 1000, 4500]]);
   });
 
   it("keeps only synchronized results for automatic matching", async () => {

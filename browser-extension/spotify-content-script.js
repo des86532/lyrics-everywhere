@@ -58,10 +58,11 @@
   function parseTime(value) {
     const parts = value.trim().split(":").map(Number);
     if (parts.length < 2 || parts.length > 3 || parts.some((part) => !Number.isInteger(part) || part < 0)) return null;
+    const hasHours = parts.length === 3;
     const seconds = parts.pop();
     const minutes = parts.pop();
     const hours = parts.pop() || 0;
-    if (seconds >= 60 || minutes >= 60 && parts.length > 0) return null;
+    if (seconds >= 60 || minutes >= 60 && hasHours) return null;
     return ((hours * 60 + minutes) * 60 + seconds) * 1000;
   }
 
@@ -86,10 +87,11 @@
     if (!media) return;
     const state = media.paused ? "paused" : "playing";
 
-    const positionMs = parseTime(text(document.querySelector('[data-testid="playback-position"]')));
+    const clockPositionMs = parseTime(text(document.querySelector('[data-testid="playback-position"]')));
     const durationMs = parseTime(text(document.querySelector('[data-testid="playback-duration"]')));
-    if (positionMs === null || durationMs === null || durationMs <= 0 || positionMs > durationMs) return;
-    if (Math.abs(media.duration * 1000 - durationMs) > 3000 || Math.abs(media.currentTime * 1000 - positionMs) > 3000) return;
+    if (clockPositionMs === null || durationMs === null || durationMs <= 0 || clockPositionMs > durationMs) return;
+    if (Math.abs(media.duration * 1000 - durationMs) > 3000 || Math.abs(media.currentTime * 1000 - clockPositionMs) > 3000) return;
+    const positionMs = Math.round(media.currentTime * 1000);
 
     return send({ type: "playback-report", report: {
       version: 2,

@@ -57,8 +57,7 @@
     if (!/^[A-Za-z0-9_-]{11}$/.test(data.videoId) || !Array.isArray(data.chapters)) return;
     const chapters = data.chapters.filter((chapter) =>
       Number.isSafeInteger(chapter?.startMs) && chapter.startMs >= 0 &&
-      typeof chapter.title === "string" && chapter.title.trim() && chapter.title.length <= 500 &&
-      (chapter.artist === undefined || (typeof chapter.artist === "string" && chapter.artist.length <= 200))
+      typeof chapter.title === "string" && chapter.title.trim() && chapter.title.length <= 500
     ).sort((left, right) => left.startMs - right.startMs);
     let musicCredits;
     if (Array.isArray(data.musicCredits) && data.musicCredits.length <= 10) {
@@ -144,7 +143,11 @@
   }
   function artists() {
     if (appId() === "youtube-music") {
-      const values = [...document.querySelectorAll("ytmusic-player-bar .byline a")].map((node) => node.textContent.trim()).filter(Boolean);
+      // The byline is "Artist • Album • Year"; artist links point to channel/, album links to browse/MPRE….
+      const links = [...document.querySelectorAll("ytmusic-player-bar .byline a")]
+        .map((node) => ({ name: node.textContent.trim(), href: node.href || node.getAttribute?.("href") || "" })).filter((link) => link.name);
+      const channels = links.filter((link) => link.href.includes("channel/"));
+      const values = (channels.length ? channels : links.filter((link) => !link.href.includes("browse/MPRE"))).map((link) => link.name);
       if (values.length) return values.slice(0, 8);
     }
     const channel = text("ytd-watch-metadata ytd-channel-name a") || content("meta[itemprop='author']");
@@ -172,10 +175,8 @@
     const videoTitle = title();
     const videoTitleTrack = !chapter && appId() === "youtube" ? parseExplicitTrackTitle(videoTitle) : undefined;
     const trackTitle = chapterParts ? chapterParts[2].trim() : chapter?.title || videoTitleTrack?.title || videoTitle;
-    const trackArtists = chapter?.artist
-      ? [chapter.artist]
-      : chapterParts ? [chapterParts[1].trim()] : videoTitleTrack?.artists ?? artists();
-    const artistVerified = appId() !== "youtube" || Boolean(chapter?.artist || chapterParts || videoTitleTrack);
+    const trackArtists = chapterParts ? [chapterParts[1].trim()] : videoTitleTrack?.artists ?? artists();
+    const artistVerified = appId() !== "youtube" || Boolean(chapterParts || videoTitleTrack);
     if (!id || !trackTitle) return { ok: false, error: "播放器已找到，但頁面尚未提供影片 ID 或標題。" };
     const state = currentMedia.ended ? "stopped" : currentMedia.paused ? "paused" : "playing";
     const absolutePositionMs = Math.max(0, Math.round(currentMedia.currentTime * 1000));

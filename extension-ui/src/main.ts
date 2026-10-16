@@ -311,7 +311,7 @@ const registry = new TranscriberRegistry().register(new KoreanTranscriber()).reg
 type JapaneseReadingWorkerMessage =
   | { type: "ready" }
   | { type: "result"; id: number; text: string; readingText: string; unresolved: boolean }
-  | { type: "error"; id?: number; text?: string; error: string };
+  | { type: "error"; id?: number; text?: string; error: string; dictionary?: boolean };
 type JapaneseReadingRequest = { text: string; generation: number };
 let japaneseReadingWorker: Worker | null = null;
 const japaneseReadingCache = new Map<string, { readingText: string; unresolved: boolean }>();
@@ -366,8 +366,10 @@ let mixNextWindowIndex = 0;
 let mixFinalWindowIndex = -1;
 let mixPersistenceQueue: Promise<void> = Promise.resolve();
 let mixDrainResolver: (() => void) | null = null;
+let mixDraftVideoId: string | null = null; // only a draft this panel created may be marked incomplete
 let mixFinalizing = false;
-const mixCacheInitialization = (async () => {
+async function initializeMixCache(): Promise<void> {
+  mixCacheError = null;
   try {
     const cache = new MixCache();
     const captureState = await chromeApi?.runtime.sendMessage({ type: "has-active-tab-capture" }).catch(() => undefined);
@@ -377,11 +379,15 @@ const mixCacheInitialization = (async () => {
   } catch (error) {
     mixCacheError = error instanceof Error ? error.message : "無法開啟 IndexedDB 字幕快取。";
   }
-})();
+}
+let mixCacheInitialization: Promise<void> | null = initializeMixCache();
 
 async function requireMixCache(): Promise<MixCache> {
-  await mixCacheInitialization;
-  if (!mixCache) throw new Error(`IndexedDB 字幕快取無法使用：${mixCacheError ?? "未知錯誤"}`);
+  await (mixCacheInitialization ??= initializeMixCache());
+  if (!mixCache) {
+    mixCacheInitialization = null; // a failed open must not be cached; the next operation retries
+    throw new Error(`IndexedDB 字幕快取無法使用：${mixCacheError ?? "未知錯誤"}`);
+  }
   return mixCache;
 }
 
@@ -405,6 +411,12 @@ function createWorker(): Worker {
   return instance;
 }
 
+const MIX_DRAIN_TIMEOUT_MS = 60_000;
+
+function logAsyncError(error: unknown): void {
+  console.error("Lyrics Everywhere:", error);
+}
+
 function notifyMixDrain(): void {
   if (mixPersistedWindows === mixWindowCount && mixDrainResolver) {
     mixDrainResolver();
@@ -412,21 +424,32 @@ function notifyMixDrain(): void {
   }
 }
 
-function waitForMixDrain(): Promise<void> {
-  if (mixPersistedWindows === mixWindowCount) return Promise.resolve();
-  return new Promise<void>((resolve) => { mixDrainResolver = resolve; });
+/** Resolves true once every window is persisted (or the session ended), false if the drain does not finish in time. */
+function waitForMixDrain(): Promise<boolean> {
+  if (mixPersistedWindows === mixWindowCount) return Promise.resolve(true);
+  return new Promise<boolean>((resolve) => {
+    const timer = window.setTimeout(() => {
+      mixDrainResolver = null;
+      resolve(false);
+    }, MIX_DRAIN_TIMEOUT_MS);
+    mixDrainResolver = () => {
+      window.clearTimeout(timer);
+      resolve(true);
+    };
+  });
 }
 
 async function failMix(message: string, sessionGeneration = generation): Promise<void> {
   if (singalongMode !== "mix-first" || sessionGeneration !== generation || !activeMixVideoId) return;
-  const videoId = activeMixVideoId;
+  const draftVideoId = mixDraftVideoId;
   captionFailure = message;
   singalongMode = "idle";
   activeMixVideoId = null;
+  mixDraftVideoId = null;
   mixDrainResolver?.();
   mixDrainResolver = null;
   try {
-    await mixCache?.markIncomplete(videoId);
+    if (draftVideoId) await mixCache?.markIncomplete(draftVideoId);
   } catch (error) {
     message += ` 草稿未能儲存：${error instanceof Error ? error.message : "IndexedDB 寫入失敗"}。`;
   }
@@ -453,7 +476,11 @@ async function finishMix(): Promise<void> {
   updateCaptionProgress();
   try {
     await capture?.flush();
-    await waitForMixDrain();
+    if (!await waitForMixDrain()) {
+      mixFinalizing = false;
+      await failMix("辨識收尾逾時；本次字幕標記為未完成。", sessionGeneration);
+      return;
+    }
     await mixPersistenceQueue;
     if (sessionGeneration !== generation || activeMixVideoId !== videoId || mixWindowResults !== mixWindowCount ||
         mixPersistedWindows !== mixWindowCount || mixRecognizedLines === 0) {
@@ -487,7 +514,7 @@ async function finishMix(): Promise<void> {
 
 function handleMixResult(message: WorkerMessage): void {
   if (message.generation !== generation || message.windowIndex !== mixWindowResults || !activeMixVideoId || !mixFirstAnchor) {
-    void failMix("ASR 窗口順序中斷；本次合輯字幕未完成。", message.generation);
+    void failMix("ASR 窗口順序中斷；本次合輯字幕未完成。", message.generation).catch(logAsyncError);
     return;
   }
   const videoId = activeMixVideoId;
@@ -517,7 +544,7 @@ function handleMixResult(message: WorkerMessage): void {
     mixPersistedWindows += 1;
     notifyMixDrain();
   }).catch((error: unknown) => {
-    void failMix(`字幕文字未能寫入 IndexedDB：${error instanceof Error ? error.message : "儲存錯誤"}。`, resultGeneration);
+    void failMix(`字幕文字未能寫入 IndexedDB：${error instanceof Error ? error.message : "儲存錯誤"}。`, resultGeneration).catch(logAsyncError);
   });
 }
 
@@ -545,7 +572,7 @@ function handleWorkerMessage(message: WorkerMessage): void {
   } else if (message.type === "error" || message.type === "overflow") {
     if (message.generation !== undefined) {
       if (message.generation !== generation) return;
-      void failMix(message.message || "音訊辨識失敗。");
+      void failMix(message.message || "音訊辨識失敗。").catch(logAsyncError);
       return;
     }
     modelReady = false;
@@ -624,6 +651,16 @@ function receiveJapaneseReadingMessage(message: JapaneseReadingWorkerMessage): v
     if (message.id !== undefined) {
       const request = japaneseReadingRequests.get(message.id);
       if (!request || request.generation !== japaneseReadingGeneration || request.text !== message.text) return;
+      if (!message.dictionary) {
+        // A single failed request only keeps the original text for that line; the dictionary itself is fine.
+        japaneseReadingRequests.delete(message.id);
+        if (pendingJapaneseReadings.get(request.text) === message.id) pendingJapaneseReadings.delete(request.text);
+        japaneseReadingCache.set(request.text, { readingText: request.text, unresolved: true });
+        japaneseHasUnresolvedReadings = true;
+        updateJapaneseReadingStatus();
+        renderCurrentLyrics();
+        return;
+      }
     }
     failJapaneseDictionary();
     return;
@@ -1368,7 +1405,7 @@ function startLyricsClock(): void {
       }
     }
     if (singalongMode === "mix-first" && mixFirstAnchor && !mixFinalizing && playbackReport && Date.now() - playbackReport.capturedAtMs > 3000) {
-      void failMix("播放來源超過 3 秒沒有回報；本次字幕標記為未完成。");
+      void failMix("播放來源超過 3 秒沒有回報；本次字幕標記為未完成。").catch(logAsyncError);
     }
     if (singalongMode === "mix-replay" && activeReplay && playbackReport) {
       if (Date.now() - playbackReport.capturedAtMs > 3000) {
@@ -1429,28 +1466,28 @@ function processMixPlaybackReport(report: PlaybackReport): void {
   if (singalongMode !== "mix-first" || !activeMixVideoId || mixFinalizing) return;
   const sessionGeneration = generation;
   if (!captureConnected && report.state === "playing") {
-    void failMix("音訊尚未連接就開始播放；請先停回 0 秒，等「音訊已連接」後再播放。", sessionGeneration);
+    void failMix("音訊尚未連接就開始播放；請先停回 0 秒，等「音訊已連接」後再播放。", sessionGeneration).catch(logAsyncError);
     return;
   }
   const mediaDurationMs = report.mediaDurationMs ?? report.durationMs;
   if (report.mediaId !== activeMixVideoId || report.sessionId !== activeMixSessionId ||
       Math.abs(mediaDurationMs - activeMixDurationMs) > 2000) {
-    void failMix("來源分頁、影片識別碼或片長已變更；本次字幕標記為未完成。", sessionGeneration);
+    void failMix("來源分頁、影片識別碼或片長已變更；本次字幕標記為未完成。", sessionGeneration).catch(logAsyncError);
     return;
   }
   if (report.state === "stopped") {
-    void finishMix();
+    void finishMix().catch(logAsyncError);
     return;
   }
   if (report.playbackRate !== 1) {
-    void failMix("合輯首遍播放速度改變；字幕時間軸不完整。", sessionGeneration);
+    void failMix("合輯首遍播放速度改變；字幕時間軸不完整。", sessionGeneration).catch(logAsyncError);
     return;
   }
   const absolutePosition = playbackPositionAt(report, report.capturedAtMs);
   if (!mixFirstAnchor) {
     if (report.state !== "playing") return;
     if (absolutePosition > 2000) {
-      void failMix("首遍開始位置超過 2 秒；字幕時間軸不完整。", sessionGeneration);
+      void failMix("首遍開始位置超過 2 秒；字幕時間軸不完整。", sessionGeneration).catch(logAsyncError);
       return;
     }
     const anchorTimeMs = Date.now();
@@ -1459,12 +1496,12 @@ function processMixPlaybackReport(report: PlaybackReport): void {
     return;
   }
   if (report.state !== "playing") {
-    void failMix("合輯首遍播放中斷或暫停；字幕標記為未完成。", sessionGeneration);
+    void failMix("合輯首遍播放中斷或暫停；字幕標記為未完成。", sessionGeneration).catch(logAsyncError);
     return;
   }
   const expectedPosition = mixFirstAnchor.positionMs + Math.max(0, report.capturedAtMs - mixFirstAnchor.capturedAtMs);
   if (Math.abs(absolutePosition - expectedPosition) > 1500) {
-    void failMix("播放進度發生 seek 或漂移超過 1.5 秒；字幕標記為未完成。", sessionGeneration);
+    void failMix("播放進度發生 seek 或漂移超過 1.5 秒；字幕標記為未完成。", sessionGeneration).catch(logAsyncError);
   }
 }
 
@@ -1475,8 +1512,8 @@ function receivePlaybackMessage(message: ExtensionMessage): void {
   if (playbackReport && playbackReport.sessionId === next.sessionId && next.capturedAtMs <= playbackReport.capturedAtMs) return;
   if (singalongMode === "mix-replay" && activeReplay) {
     const mediaDurationMs = next.mediaDurationMs ?? next.durationMs;
-    if (next.mediaId !== activeReplay.videoId || mediaDurationMs !== activeReplay.durationMs) {
-      void stopCapture(false);
+    if (next.mediaId !== activeReplay.videoId || Math.abs(mediaDurationMs - activeReplay.durationMs) > 2000) {
+      void stopCapture(false).catch(logAsyncError);
       setStatus("目前影片或片長已改變；已停止顯示舊影片的字幕。", "error");
       return;
     }
@@ -1486,7 +1523,7 @@ function receivePlaybackMessage(message: ExtensionMessage): void {
     playbackReport.mediaId !== next.mediaId ||
     singalongMode === "single" && (playbackReport.title !== next.title ||
       playbackReport.rawTitle !== next.rawTitle ||
-      playbackReport.durationMs !== next.durationMs ||
+      Math.abs(playbackReport.durationMs - next.durationMs) > 2000 ||
       playbackReport.segmentStartMs !== next.segmentStartMs ||
       playbackReport.artistVerified !== next.artistVerified ||
       playbackReport.artists.join("\0") !== next.artists.join("\0"))
@@ -1911,6 +1948,7 @@ async function startMixFirst(): Promise<void> {
     mixFinalWindowIndex = -1;
     mixPersistenceQueue = Promise.resolve();
     mixDrainResolver = null;
+    mixDraftVideoId = null;
     mixFinalizing = false;
     transcriptLines = new TranscriptLines();
     visibleLines = [];
@@ -1925,11 +1963,6 @@ async function startMixFirst(): Promise<void> {
     activeMixVideoId = report.mediaId;
     activeMixDurationMs = report.mediaDurationMs ?? report.durationMs;
     activeMixSessionId = report.sessionId;
-    await cache.begin(report.mediaId, activeMixDurationMs);
-    if (sessionGeneration !== generation || singalongMode !== "mix-first") {
-      await cache.markIncomplete(report.mediaId);
-      return;
-    }
     if (!modelReady) throw new Error("本機模型已失效；請重新載入模型後重試。");
     startLyricsClock();
     const session = new AudioCapture({
@@ -1943,7 +1976,7 @@ async function startMixFirst(): Promise<void> {
       onWindow(window) {
         if (capture !== session || generation !== sessionGeneration || !worker) return;
         if (mixWindowCount - mixWindowResults >= 6) {
-          void failMix("ASR 窗口佇列已滿；為避免跳過字幕，本次首遍未完成。", sessionGeneration);
+          void failMix("ASR 窗口佇列已滿；為避免跳過字幕，本次首遍未完成。", sessionGeneration).catch(logAsyncError);
           return;
         }
         mixWindowCount += 1;
@@ -1964,12 +1997,20 @@ async function startMixFirst(): Promise<void> {
       },
       onEnded() {
         if (capture === session && generation === sessionGeneration) {
-          void failMix("分頁音軌意外結束；本次合輯字幕未完成。", sessionGeneration);
+          void failMix("分頁音軌意外結束；本次合輯字幕未完成。", sessionGeneration).catch(logAsyncError);
         }
       },
     });
     capture = session;
     await session.start(tabId);
+    if (capture !== session || generation !== sessionGeneration) return;
+    // The draft is created only after the tab capture is reserved, so a failed reservation never touches another panel's draft.
+    await cache.begin(report.mediaId, activeMixDurationMs);
+    if (sessionGeneration !== generation || singalongMode !== "mix-first") {
+      await cache.markIncomplete(report.mediaId);
+      return;
+    }
+    mixDraftVideoId = report.mediaId;
     if (capture === session && generation === sessionGeneration) {
       captureConnected = true;
       updateCaptionProgress();
@@ -2016,7 +2057,7 @@ async function startMixReplay(): Promise<void> {
     const complete = await cache.getComplete(report.mediaId);
     const mediaDurationMs = report.mediaDurationMs ?? report.durationMs;
     if (!complete) throw new Error("目前影片沒有完整首遍字幕快取；未完成草稿不能用於二刷。");
-    if (complete.durationMs !== mediaDurationMs) throw new Error("快取片長與目前 YouTube 影片不符；不會用錯誤時間軸顯示字幕。");
+    if (Math.abs(complete.durationMs - mediaDurationMs) > 2000) throw new Error("快取片長與目前 YouTube 影片不符；不會用錯誤時間軸顯示字幕。");
     if (replayGeneration !== generation || singalongMode !== "mix-replay") return;
     activeReplay = complete;
     stopButton.disabled = false;
@@ -2041,7 +2082,8 @@ mixReplayButton.addEventListener("click", () => void startMixReplay());
 
 async function stopCapture(inform = true): Promise<void> {
   if (inform) captionFailure = null;
-  const incompleteMixVideoId = singalongMode === "mix-first" ? activeMixVideoId : null;
+  const incompleteMixVideoId = singalongMode === "mix-first" ? mixDraftVideoId : null;
+  mixDraftVideoId = null;
   generation += 1;
   captureConnected = false;
   captionStarting = false;
@@ -2084,7 +2126,7 @@ async function stopCapture(inform = true): Promise<void> {
     : "已停止。播放來源鎖定、音訊緩衝與待處理結果已清除。", persistenceError ? "error" : "idle");
 }
 
-stopButton.addEventListener("click", () => void stopCapture());
+stopButton.addEventListener("click", () => void stopCapture().catch(logAsyncError));
 systemSelect.addEventListener("change", saveCurrentDisplayPreferences);
 preferencesFieldset.addEventListener("change", saveCurrentDisplayPreferences);
 originalToggle.addEventListener("change", () => {
@@ -2149,5 +2191,5 @@ settingsDialog.addEventListener("click", (event) => {
 void Promise.all([initializeDisplayPreferences(), initializeManualSelections(), initializeLyricTimingCorrections(), initializeAiRejections()]).then(() => {
   void refreshSourceTabs();
   return startSingleDetection();
-});
-window.addEventListener("pagehide", () => { void stopCapture(false); });
+}).catch(logAsyncError);
+window.addEventListener("pagehide", () => { void stopCapture(false).catch(logAsyncError); });

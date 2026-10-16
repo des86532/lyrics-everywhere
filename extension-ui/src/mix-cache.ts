@@ -155,10 +155,18 @@ export class MixCache {
         if (!database.objectStoreNames.contains(COMPLETE_STORE)) database.createObjectStore(COMPLETE_STORE, { keyPath: "videoId" });
         if (!database.objectStoreNames.contains(DRAFT_STORE)) database.createObjectStore(DRAFT_STORE, { keyPath: "videoId" });
       };
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => {
+        const database = request.result;
+        database.onversionchange = () => {
+          database.close();
+          this.database = null;
+        };
+        resolve(database);
+      };
       request.onerror = () => reject(request.error ?? new Error("無法開啟字幕資料庫。"));
       request.onblocked = () => reject(new Error("字幕資料庫升級被其他側欄分頁阻擋。"));
     });
+    this.database.catch(() => { this.database = null; }); // a failed open must not be cached; the next call retries
     return this.database;
   }
 

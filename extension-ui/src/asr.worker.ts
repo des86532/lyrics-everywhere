@@ -25,12 +25,16 @@ type WorkerResponse = {
 
 let transcriber: AutomaticSpeechRecognitionPipeline | null = null;
 let busy = false;
+let busyGeneration: number | null = null;
+let latestGeneration = -1;
+let cancelledThroughGeneration = -1;
 const queued = new AsrWindowQueue<Extract<WorkerRequest, { type: "transcribe" }>>(6);
 
 self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   const request = event.data;
   if (request.type === "cancel") {
     queued.clear();
+    cancelledThroughGeneration = latestGeneration;
     return;
   }
   if (request.type === "init") {
@@ -41,7 +45,8 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
     postMessage({ type: "error", generation: request.generation, windowIndex: request.windowIndex, startMs: request.startMs, message: "辨識模型尚未載入。" } satisfies WorkerResponse);
     return;
   }
-  if (!queued.enqueue(request, Number(busy))) {
+  latestGeneration = Math.max(latestGeneration, request.generation);
+  if (!queued.enqueue(request, busy ? busyGeneration : null)) {
     postMessage({ type: "overflow", generation: request.generation, windowIndex: request.windowIndex, startMs: request.startMs, message: "ASR 窗口佇列已滿；為避免跳過字幕，本次首遍未完成。" } satisfies WorkerResponse);
     return;
   }
@@ -77,18 +82,22 @@ async function processNext(): Promise<void> {
   const request = queued.dequeue();
   if (!request) return;
   busy = true;
+  busyGeneration = request.generation;
   await transcribe(request);
   busy = false;
+  busyGeneration = null;
   if (queued.size > 0) void processNext();
 }
 
 async function transcribe(request: Extract<WorkerRequest, { type: "transcribe" }>): Promise<void> {
+  const stale = () => request.generation <= cancelledThroughGeneration;
   try {
     let power = 0;
     for (let i = 0; i < request.samples.length; i += 1) power += request.samples[i]! * request.samples[i]!;
     const rms = Math.sqrt(power / request.samples.length);
     if (rms >= 0.002) {
       const rawOutput = await transcriber!(request.samples, { task: "transcribe", return_timestamps: true });
+      if (stale()) return;
       const output = Array.isArray(rawOutput) ? rawOutput[0] : rawOutput;
       const chunks = output && "chunks" in output && Array.isArray(output.chunks) ? output.chunks as Array<{ timestamp: [number | null, number | null]; text: string }> : [];
       postMessage({ type: "result", generation: request.generation, windowIndex: request.windowIndex, startMs: request.startMs, chunks, audioState: "audible" } satisfies WorkerResponse);
@@ -96,6 +105,7 @@ async function transcribe(request: Extract<WorkerRequest, { type: "transcribe" }
       postMessage({ type: "result", generation: request.generation, windowIndex: request.windowIndex, startMs: request.startMs, chunks: [], audioState: "silent" } satisfies WorkerResponse);
     }
   } catch (error) {
+    if (stale()) return;
     postMessage({ type: "error", generation: request.generation, windowIndex: request.windowIndex, startMs: request.startMs, message: error instanceof Error ? error.message : "音訊辨識失敗。" } satisfies WorkerResponse);
   }
 }
