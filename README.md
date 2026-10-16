@@ -37,8 +37,8 @@ Chrome／Edge 側欄空耳跟唱工具：單曲使用 LRCLIB 同步歌詞，自�
 
    ```bash
    pnpm install
-   pnpm run lint:extension
-   pnpm run build:extension
+   pnpm run lint
+   pnpm run build
    ```
 
 2. 在 Chrome 開啟 `chrome://extensions`，或在 Edge 開啟 `edge://extensions`，啟用開發人員模式並載入本專案的 `browser-extension/` 目錄。
@@ -59,8 +59,8 @@ Chrome／Edge 側欄空耳跟唱工具：單曲使用 LRCLIB 同步歌詞，自�
 
 ```bash
 pnpm test
-pnpm run lint:extension
-pnpm run build:extension
+pnpm run lint
+pnpm run build
 ```
 
 來源主要分層：`browser-extension/` 負責播放報告驗證、側欄訊息轉送與 tabCapture 權限閘門；`extension-ui/src/` 是側欄、LRCLIB、合輯 ASR 與文字快取原始碼，建置至 `browser-extension/app/`。`youtube-music-credit.ts` 負責從頁面資料中挑選單一音樂區塊曲目資訊；`manual-lyrics.ts` 負責手動指定的輸入解析、AI 提示詞與本機記憶格式；頂層 `src/` 放共用邏輯：`src/domain/` 型別、`src/lyrics/lrc-core.ts`（LRC 解析）與 `src/pronunciation/`（韓文與日文轉寫器）。舊 Node／companion 的根目錄 `dist/` 不再使用，也不會由 extension 建置產生。
@@ -73,4 +73,4 @@ pnpm run build:extension
 pnpm run package:extension
 ```
 
-（腳本使用 `rm`、`mkdir`、`zip`，Windows 請在 Git Bash 中執行並先安裝 `zip`。）打包完成後會產生 `release/lyrics-everywhere-extension.zip`，其根目錄即為包含 `manifest.json` 的擴充功能封裝檔，可直接上傳至 Chrome Web Store 或 Edge Add-ons。相關上架文字與商店權限聲明請參閱 [`docs/chrome-web-store.md`](docs/chrome-web-store.md)。
+打包完成後會產生 `release/lyrics-everywhere-extension.zip`，其根目錄即為包含 `manifest.json` 的擴充功能封裝檔，可直接上傳至 Chrome Web Store 或 Edge Add-ons。相關上架文字與商店權限聲明請參閱 [`docs/chrome-web-store.md`](docs/chrome-web-store.md)。

@@ -121,7 +121,7 @@
 3. 首次註冊需支付一次性註冊費 **$5 美元** 並填寫開發者聯絡資訊。
 
 ### 步驟 2：打包並上傳擴充功能套件
-1. 於終端機執行（腳本使用 `rm`、`mkdir`、`zip`，Windows 請在 Git Bash 中執行並先安裝 `zip`）：
+1. 於終端機執行：
    ```bash
    pnpm run package:extension
    ```

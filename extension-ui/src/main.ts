@@ -8,7 +8,7 @@ import { STEP_SECONDS, WINDOW_SECONDS } from "./window-buffer.js";
 import { TranscriptLines, type TranscriptLine, type TimestampedChunk } from "./transcript-lines.js";
 import type { SyncedLyrics } from "../../src/domain/types.js";
 import { durationTolerance, fetchLrclibRecord, lrclibFetcher, parseRecordLyrics, searchLyricsByVideoTitle, searchLyricsForArtists, searchLyricsForIdentity, selectAutomaticLyrics, type LrclibRecord } from "./lyrics.js";
-import { selectYouTubeMusicCredit, type YouTubeMusicCredit } from "./youtube-music-credit.js";
+import { selectYouTubeMusicCredit } from "./youtube-music-credit.js";
 import { exactSyncedCandidatesForArtists, lyricFocusAt, lyricWindowStart, LYRICS_WINDOW_SIZE, mixReplayWindow, playbackPositionAt, playbackTrackPositionAt, specialVideoKind, titleLookupKeyword, type LyricFocus, type PlaybackReport, type SpecialVideoKind } from "./playback.js";
 import { MANUAL_LYRICS_STORAGE_KEY, MAX_MANUAL_SELECTIONS, manualLyricsPrompt, parseManualLyricsInput, parseManualSelections, parseRejectedVideoIds, updateManualSelections, updateRejectedVideoIds, extractLyricSnippet, formatDuration, rankCandidateRecords } from "./manual-lyrics.js";
 import { alignedLyricOffset, formatLyricOffset, lyricPositionForVideo, nudgeLyricOffset, parseLyricOffset, parseLyricTimingCorrections, updateLyricTimingCorrections } from "./lyric-timing.js";
@@ -349,9 +349,6 @@ let lyricTimingOffsets: Record<string, number> = {};
 let lyricTimingInputKey: string | null = null;
 let storageWriteQueue: Promise<void> = Promise.resolve();
 let storageWritesPending = 0;
-function latestPlaybackReport(): PlaybackReport | null {
-  return playbackReport;
-}
 let lyricsTicker: number | undefined;
 let mixCache: MixCache | null = null;
 let mixCacheError: string | null = null;

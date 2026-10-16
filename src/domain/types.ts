@@ -14,8 +14,8 @@ export interface LyricLine {
   tokens?: LyricToken[];
 }
 
-export type LyricsFormat = "plain" | "lrc" | "enhanced-lrc";
-export type LyricsGranularity = "none" | "line" | "word";
+export type LyricsFormat = "plain" | "lrc";
+export type LyricsGranularity = "none" | "line";
 
 export interface SyncedLyrics {
   lyricsId: string;
@@ -23,7 +23,6 @@ export interface SyncedLyrics {
   provider: {
     name: string;
     recordId: string;
-    attribution?: string;
   };
   format: LyricsFormat;
   granularity: LyricsGranularity;

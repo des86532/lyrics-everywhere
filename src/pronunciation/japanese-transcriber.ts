@@ -130,21 +130,6 @@ for (const row of YOON_ROWS) {
   }
 }
 
-function toHiragana(char: string): string {
-  const code = char.charCodeAt(0);
-  return code >= 0x30a1 && code <= 0x30f6 ? String.fromCharCode(code - 0x60) : char;
-}
-
-function displayEntry(entry: KanaReading, systems: PhoneticSystem[]): string {
-  if (systems.includes("chinese")) return entry.chinese;
-  if (systems.includes("latin")) return entry.romanization;
-  return entry.chinese;
-}
-
-function finalVowel(entry: KanaReading | undefined): string | undefined {
-  return entry?.romanization.match(/[aeiou]$/)?.[0];
-}
-
 export class JapaneseTranscriber implements LanguageTranscriber {
   readonly id = "japanese-transcriber";
   readonly languages = ["ja", "japanese"] as const;
