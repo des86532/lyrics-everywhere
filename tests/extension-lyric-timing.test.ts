@@ -5,6 +5,7 @@ import {
   isValidLyricOffset,
   lyricPositionForVideo,
   MAX_LYRIC_OFFSET_MS,
+  MAX_LYRIC_TIMING_CORRECTIONS,
   nudgeLyricOffset,
   parseLyricOffset,
   parseLyricTimingCorrections,
@@ -25,6 +26,17 @@ describe("stored lyric timing corrections", () => {
     expect(updateLyricTimingCorrections({ [keyA]: 1500 }, keyB, -2000)).toEqual({ [keyA]: 1500, [keyB]: -2000 });
     expect(updateLyricTimingCorrections({ [keyA]: 1500, [keyB]: 1 }, keyA, 0)).toEqual({ [keyB]: 1 });
     expect(updateLyricTimingCorrections(undefined, keyA, 500)).toEqual({ [keyA]: 500 });
+  });
+
+  it("moves a re-set key to most recent and evicts the oldest beyond the cap", () => {
+    expect(Object.keys(updateLyricTimingCorrections({ [keyA]: 1, [keyB]: 2 }, keyA, 3))).toEqual([keyB, keyA]);
+    const full: Record<string, number> = {};
+    for (let i = 0; i < MAX_LYRIC_TIMING_CORRECTIONS; i++) full[`${String(i).padStart(11, "0")}:${"c".repeat(64)}`] = 1;
+    const oldest = Object.keys(full)[0]!;
+    const next = updateLyricTimingCorrections(full, keyA, 5);
+    expect(Object.keys(next)).toHaveLength(MAX_LYRIC_TIMING_CORRECTIONS);
+    expect(next[oldest]).toBeUndefined();
+    expect(Object.keys(next).at(-1)).toBe(keyA);
   });
 });
 

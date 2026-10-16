@@ -204,6 +204,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ active: activeCapture !== null });
     return;
   }
+  if (message?.type === "playback-listening-query" && sender.id === chrome.runtime.id && sender.tab) {
+    sendResponse({ listening: panelPorts.size > 0 });
+    return;
+  }
   if (message?.type === "list-playback-tabs" && sender.id === chrome.runtime.id) {
     listPlaybackTabs().then(
       (tabs) => sendResponse({ ok: true, tabs }),

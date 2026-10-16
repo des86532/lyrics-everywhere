@@ -1,4 +1,5 @@
 export const MAX_LYRIC_OFFSET_MS = 3_600_000;
+export const MAX_LYRIC_TIMING_CORRECTIONS = 200;
 
 export function isValidLyricOffset(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value !== 0 &&
@@ -14,11 +15,13 @@ export function parseLyricTimingCorrections(value: unknown): Record<string, numb
   return valid;
 }
 
-/** Applies one offset change (0 removes it) to the latest stored corrections so concurrent side panels never overwrite each other's entries. */
+/** Applies one offset change (0 removes it) to the latest stored corrections, keeping only the newest 200, so concurrent side panels never overwrite each other's entries. */
 export function updateLyricTimingCorrections(stored: unknown, key: string, offsetMs: number): Record<string, number> {
   const corrections = parseLyricTimingCorrections(stored);
-  if (offsetMs === 0) delete corrections[key];
-  else corrections[key] = offsetMs;
+  delete corrections[key];
+  if (offsetMs !== 0) corrections[key] = offsetMs;
+  const keys = Object.keys(corrections);
+  for (const oldest of keys.slice(0, Math.max(0, keys.length - MAX_LYRIC_TIMING_CORRECTIONS))) delete corrections[oldest];
   return corrections;
 }
 

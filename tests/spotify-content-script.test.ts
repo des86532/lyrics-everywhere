@@ -7,13 +7,14 @@ const spotifyContentScript = readFileSync(
   "utf8"
 );
 
-const runScript = (href: string) => {
+const runScript = (href: string, clock: { currentTime?: number; position?: string; duration?: string; mediaDuration?: number } = {}, listening = true, queryReply: { listening: boolean } | undefined = undefined) => {
+    const sent: Array<{ type: string }> = [];
     const reports: Array<{ report: Record<string, unknown> }> = [];
     let tick: (() => void) | undefined;
 
     const media = {
-      duration: 180,
-      currentTime: 30,
+      duration: clock.mediaDuration ?? 180,
+      currentTime: clock.currentTime ?? 30,
       paused: false,
     };
 
@@ -24,8 +25,8 @@ const runScript = (href: string) => {
 
     const titleElement = { textContent: "Super Shy" };
     const artistElement = { textContent: "NewJeans" };
-    const positionElement = { textContent: "0:30" };
-    const durationElement = { textContent: "3:00" };
+    const positionElement = { textContent: clock.position ?? "0:30" };
+    const durationElement = { textContent: clock.duration ?? "3:00" };
     const controlButton = {
       getAttribute: (attr: string) => (attr === "aria-label" ? "일시정지" : null),
     };
@@ -65,11 +66,12 @@ const runScript = (href: string) => {
       },
       chrome: {
         runtime: {
-          sendMessage: (message: { report: Record<string, unknown> }) => {
-            reports.push(message);
-            return Promise.resolve();
+          sendMessage: (message: { type: string; report: Record<string, unknown> }) => {
+            sent.push(message);
+            if (message.type === "playback-report") reports.push(message);
+            return Promise.resolve(message.type === "playback-listening-query" ? queryReply : undefined);
           },
-          onMessage: { addListener: () => undefined },
+          onMessage: { addListener: (listener: (message: unknown) => void) => { if (listening) listener({ type: "playback-listening", listening: true }); } },
         },
       },
       setInterval: (callback: () => void) => {
@@ -80,7 +82,7 @@ const runScript = (href: string) => {
     });
 
     tick?.();
-    return reports;
+    return Object.assign(reports, { sent, tick });
 };
 
 describe("Spotify content script", () => {
@@ -96,6 +98,34 @@ describe("Spotify content script", () => {
       durationMs: 180000,
       playbackRate: 1,
     });
+  });
+
+  it("reports the media element position with millisecond precision", () => {
+    const reports = runScript("https://open.spotify.com/track/11dFghVXANMlKmJXsNCbNl", { currentTime: 30.4567 });
+    expect(reports[0]?.report.positionMs).toBe(30457);
+  });
+
+  it("skips reports when the clock text and media position disagree by more than 3 seconds", () => {
+    expect(runScript("https://open.spotify.com/track/11dFghVXANMlKmJXsNCbNl", { currentTime: 40 })).toHaveLength(0);
+  });
+
+  it("accepts minutes of 60 or more without hours but rejects them with hours", () => {
+    const url = "https://open.spotify.com/track/11dFghVXANMlKmJXsNCbNl";
+    expect(runScript(url, { currentTime: 4335, mediaDuration: 4800, position: "72:15", duration: "80:00" })[0]?.report).toMatchObject({ positionMs: 4335000, durationMs: 4800000 });
+    expect(runScript(url, { currentTime: 4335, mediaDuration: 7200, position: "1:72:15", duration: "2:00:00" })).toHaveLength(0);
+  });
+
+  it("sends nothing while no side panel is listening", () => {
+    const run = runScript("https://open.spotify.com/track/11dFghVXANMlKmJXsNCbNl", {}, false);
+    run.tick?.();
+    expect(run.sent.filter(({ type }) => type === "playback-report")).toHaveLength(0);
+  });
+
+  it("starts reporting after the service worker says a panel is listening", async () => {
+    const run = runScript("https://open.spotify.com/track/11dFghVXANMlKmJXsNCbNl", {}, false, { listening: true });
+    expect(run.sent.map(({ type }) => type)).toEqual(["playback-listening-query"]);
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    expect(run).toHaveLength(1);
   });
 
   it("reports the canonical track page URL when playing from a playlist page", () => {

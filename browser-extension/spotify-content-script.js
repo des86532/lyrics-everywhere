@@ -5,15 +5,13 @@
   window[lifecycleKey] = lifecycle;
   const sessionId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
   const TRACK_ID_PATTERN = /^[A-Za-z0-9]{22}$/;
-  let listening = true;
-  let lastSentAt = 0;
+  let listening = false;
 
   function contextInvalidated(error) {
     return /extension context invalidated/i.test(error?.message || "");
   }
 
   function send(message) {
-    lastSentAt = Date.now();
     let result;
     try {
       result = chrome.runtime.sendMessage(message);
@@ -33,8 +31,8 @@
     );
   }
 
-  function reportInBackground(reason) {
-    if (!listening && reason !== "event" && Date.now() - lastSentAt < 10000) return;
+  function reportInBackground() {
+    if (!listening) return;
     try {
       Promise.resolve(report()).catch(() => {});
     } catch {}
@@ -43,7 +41,7 @@
   const onRuntimeMessage = (message, _sender, sendResponse) => {
     if (message?.type === "playback-listening") {
       listening = message.listening === true;
-      if (listening) reportInBackground("event");
+      if (listening) reportInBackground();
       return;
     }
     if (message?.type !== "request-playback-report") return;
@@ -53,6 +51,12 @@
     return true;
   };
   chrome.runtime.onMessage.addListener(onRuntimeMessage);
+  // A page loaded while a side panel is already open missed the broadcast; ask once.
+  try {
+    Promise.resolve(chrome.runtime.sendMessage({ type: "playback-listening-query" })).then((response) => {
+      if (response?.listening === true) { listening = true; reportInBackground(); }
+    }, () => {});
+  } catch {}
 
   function text(node) { return node?.textContent?.trim() || ""; }
   function parseTime(value) {
@@ -110,7 +114,7 @@
   }
 
   const intervalId = setInterval(() => {
-    reportInBackground("tick");
+    reportInBackground();
   }, 1000);
   lifecycle.stop = () => {
     try { clearInterval(intervalId); } catch {}

@@ -8,11 +8,9 @@
   let currentUrl = location.href;
   let listeners = [];
   let youtubePageData = { videoId: "", chapters: [] };
-  let listening = true;
-  let lastSentAt = 0;
+  let listening = false;
   function contextInvalidated(error) { return /extension context invalidated/i.test(error?.message || ""); }
   function send(message) {
-    lastSentAt = Date.now();
     let result;
     try {
       result = chrome.runtime.sendMessage(message);
@@ -31,8 +29,8 @@
       }
     );
   }
-  function reportInBackground(reason) {
-    if (!listening && reason !== "event" && Date.now() - lastSentAt < 10000) return;
+  function reportInBackground() {
+    if (!listening) return;
     try {
       Promise.resolve(report()).catch(() => {});
     } catch {}
@@ -40,7 +38,7 @@
   const onRuntimeMessage = (message, _sender, sendResponse) => {
     if (message?.type === "playback-listening") {
       listening = message.listening === true;
-      if (listening) reportInBackground("event");
+      if (listening) reportInBackground();
       return;
     }
     if (message?.type !== "request-playback-report") return;
@@ -51,6 +49,12 @@
     return true;
   };
   chrome.runtime.onMessage.addListener(onRuntimeMessage);
+  // A page loaded while a side panel is already open missed the broadcast; ask once.
+  try {
+    Promise.resolve(chrome.runtime.sendMessage({ type: "playback-listening-query" })).then((response) => {
+      if (response?.listening === true) { listening = true; reportInBackground(); }
+    }, () => {});
+  } catch {}
   const onWindowMessage = (event) => {
     const data = event.data;
     if (event.source !== window || event.origin !== location.origin || data?.type !== "lyrics-everywhere-youtube-page-data") return;
@@ -207,7 +211,7 @@
     listeners.forEach(([name, handler]) => currentMedia?.removeEventListener(name, handler));
     currentMedia = media;
     listeners = ["play", "pause", "seeking", "ratechange", "durationchange", "loadedmetadata", "ended", "timeupdate"].map((name) => {
-      const handler = () => reportInBackground(name === "timeupdate" ? "timeupdate" : "event");
+      const handler = () => reportInBackground();
       media.addEventListener(name, handler);
       return [name, handler];
     });
@@ -220,7 +224,7 @@
       listeners = [];
     }
     bind();
-    reportInBackground("tick");
+    reportInBackground();
   }, 1000);
   lifecycle.stop = () => {
     try { clearInterval(intervalId); } catch {}

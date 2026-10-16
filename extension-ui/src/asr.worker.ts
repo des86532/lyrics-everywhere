@@ -23,6 +23,8 @@ type WorkerResponse = {
   message?: string;
 };
 
+// Pinned commit of onnx-community/whisper-base so the model cannot change under us; bump deliberately.
+const WHISPER_MODEL_REVISION = "1846881b6b3a3024392c1eea3ad983695bc23925";
 let transcriber: AutomaticSpeechRecognitionPipeline | null = null;
 let busy = false;
 let busyGeneration: number | null = null;
@@ -66,6 +68,7 @@ async function initialize(): Promise<void> {
     const createPipeline = pipeline as unknown as (task: string, model: string, options: Record<string, unknown>) => Promise<unknown>;
     transcriber = await createPipeline("automatic-speech-recognition", "onnx-community/whisper-base", {
       device: "webgpu",
+      revision: WHISPER_MODEL_REVISION,
       progress_callback: (event: { progress?: number; status?: string }) => {
         postMessage({ type: "progress", progress: event.progress, message: event.status } satisfies WorkerResponse);
       },

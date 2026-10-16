@@ -30,9 +30,20 @@ export class MixCache {
 
   constructor(private readonly factory: IDBFactory = indexedDB) {}
 
-  async initialize(recoverInterrupted = true): Promise<void> {
-    await this.open();
-    if (recoverInterrupted) await this.markInterruptedDraftsIncomplete();
+  async initialize(removeStaleDrafts = true): Promise<void> {
+    const database = await this.open();
+    if (!removeStaleDrafts) return;
+    const transaction = database.transaction(DRAFT_STORE, "readwrite");
+    transaction.objectStore(DRAFT_STORE).clear();
+    await transactionComplete(transaction);
+  }
+
+  async clearAll(): Promise<void> {
+    const database = await this.open();
+    const transaction = database.transaction([COMPLETE_STORE, DRAFT_STORE], "readwrite");
+    transaction.objectStore(COMPLETE_STORE).clear();
+    transaction.objectStore(DRAFT_STORE).clear();
+    await transactionComplete(transaction);
   }
 
   async getComplete(videoId: string): Promise<CompleteMix | null> {
@@ -41,14 +52,6 @@ export class MixCache {
     const result = await requestResult<CompleteMix | undefined>(transaction.objectStore(COMPLETE_STORE).get(videoId));
     await transactionComplete(transaction);
     return result?.status === "complete" ? result : null;
-  }
-
-  async getDraft(videoId: string): Promise<MixDraft | null> {
-    const database = await this.open();
-    const transaction = database.transaction(DRAFT_STORE, "readonly");
-    const result = await requestResult<MixDraft | undefined>(transaction.objectStore(DRAFT_STORE).get(videoId));
-    await transactionComplete(transaction);
-    return result ?? null;
   }
 
   async begin(videoId: string, durationMs: number): Promise<void> {
@@ -129,21 +132,6 @@ export class MixCache {
     });
     await Promise.all([result, transactionComplete(transaction)]);
     return result;
-  }
-
-  private async markInterruptedDraftsIncomplete(): Promise<void> {
-    const database = await this.open();
-    const transaction = database.transaction(DRAFT_STORE, "readwrite");
-    const store = transaction.objectStore(DRAFT_STORE);
-    const request = store.openCursor();
-    request.onsuccess = () => {
-      const cursor = request.result;
-      if (!cursor) return;
-      const draft = cursor.value as MixDraft;
-      if (draft.status === "recording") cursor.update({ ...draft, status: "incomplete", updatedAtMs: Date.now() } satisfies MixDraft);
-      cursor.continue();
-    };
-    await transactionComplete(transaction);
   }
 
   private open(): Promise<IDBDatabase> {

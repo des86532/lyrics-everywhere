@@ -129,6 +129,8 @@ const settingsDialog = element<HTMLDialogElement>("settings-dialog");
 const candidateVersionsSection = element<HTMLDivElement>("candidate-versions-section");
 const candidateVersionsList = element<HTMLDivElement>("candidate-versions-list");
 const manualLyricsDetails = element<HTMLDetailsElement>("manual-lyrics");
+const clearLocalCaptionsButton = element<HTMLButtonElement>("clear-local-captions");
+const clearLocalCaptionsStatus = element<HTMLParagraphElement>("clear-local-captions-status");
 const sourceSelectionStatus = element<HTMLParagraphElement>("source-selection-status");
 const sourceModeText = element<HTMLSpanElement>("source-mode");
 const captionHelp = element<HTMLParagraphElement>("caption-help");
@@ -255,6 +257,7 @@ function updateCaptionControls(): void {
   mixFirstButton.disabled = !modelReady || captionStarting || problem !== null;
   mixReplayButton.hidden = !allowed;
   mixReplayButton.disabled = captionStarting;
+  clearLocalCaptionsButton.disabled = captionStarting || singalongMode === "mix-first" || singalongMode === "mix-replay";
   captionHelp.hidden = !allowed;
   if (allowed) {
     const help = !modelReady
@@ -2079,6 +2082,14 @@ async function startMixReplay(): Promise<void> {
 }
 
 mixReplayButton.addEventListener("click", () => void startMixReplay());
+clearLocalCaptionsButton.addEventListener("click", () => {
+  if (clearLocalCaptionsButton.disabled || !window.confirm("確定要清除所有本機字幕與草稿？此動作無法復原。")) return;
+  clearLocalCaptionsButton.disabled = true;
+  requireMixCache().then((cache) => cache.clearAll()).then(
+    () => { clearLocalCaptionsStatus.textContent = "已清除本機字幕。"; },
+    (error: unknown) => { clearLocalCaptionsStatus.textContent = error instanceof Error ? error.message : "無法清除本機字幕。"; },
+  ).finally(updateCaptionControls);
+});
 
 async function stopCapture(inform = true): Promise<void> {
   if (inform) captionFailure = null;

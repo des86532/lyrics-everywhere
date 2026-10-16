@@ -41,14 +41,14 @@ it("re-entry keeps polling, media events and source requests on the new playback
     },
     chrome: { runtime: {
       onMessage: {
-        addListener: (listener: (...args: unknown[]) => unknown) => messageListeners.push(listener),
+        addListener: (listener: (...args: unknown[]) => unknown) => { messageListeners.push(listener); listener({ type: "playback-listening", listening: true }); },
         removeListener: (listener: (...args: unknown[]) => unknown) => {
           const index = messageListeners.indexOf(listener);
           if (index >= 0) messageListeners.splice(index, 1);
         },
       },
-      sendMessage: (message: { report: Record<string, unknown> }) => {
-        reports.push(message);
+      sendMessage: (message: { type: string; report: Record<string, unknown> }) => {
+        if (message.type === "playback-report") reports.push(message);
         return Promise.resolve();
       },
     } },
@@ -121,8 +121,8 @@ function reportForVideoTitle(videoTitle: string, options: { metadataVideoId?: st
       querySelectorAll: () => [],
     },
     chrome: { runtime: {
-      sendMessage: (message: { report: Record<string, unknown> }) => reports.push(message),
-      onMessage: { addListener: () => undefined },
+      sendMessage: (message: { type: string; report: Record<string, unknown> }) => message.type === "playback-report" ? reports.push(message) : Promise.resolve(),
+      onMessage: { addListener: (listener: (message: unknown) => void) => listener({ type: "playback-listening", listening: true }) },
     } },
     setInterval: (callback: () => void) => { tick = callback; return 1; },
   });
@@ -167,8 +167,8 @@ describe("YouTube chapter playback reports", () => {
         querySelectorAll: () => [],
       },
       chrome: { runtime: {
-        sendMessage: (message: { report: Record<string, unknown> }) => reports.push(message),
-        onMessage: { addListener: () => undefined },
+        sendMessage: (message: { type: string; report: Record<string, unknown> }) => message.type === "playback-report" ? reports.push(message) : Promise.resolve(),
+        onMessage: { addListener: (listener: (message: unknown) => void) => listener({ type: "playback-listening", listening: true }) },
       } },
       setInterval: (callback: () => void) => { tick = callback; return 1; },
     });
@@ -335,8 +335,8 @@ describe("YouTube chapter playback reports", () => {
         querySelectorAll: () => [],
       },
       chrome: { runtime: {
-        sendMessage: (message: { report: Record<string, unknown> }) => reports.push(message),
-        onMessage: { addListener: () => undefined },
+        sendMessage: (message: { type: string; report: Record<string, unknown> }) => message.type === "playback-report" ? reports.push(message) : Promise.resolve(),
+        onMessage: { addListener: (listener: (message: unknown) => void) => listener({ type: "playback-listening", listening: true }) },
       } },
       setInterval: (callback: () => void) => { tick = callback; return 1; },
     });
@@ -368,85 +368,62 @@ describe("YouTube chapter playback reports", () => {
     expect(reports[1]?.report.musicCredits).toEqual([{ title: "Credit Song", artist: "Credit Artist" }]);
   });
 
-  it("throttles tick reports when listening is false until 10s pass, while events still send", async () => {
-    const reports: Array<{ report: Record<string, unknown> }> = [];
+  it("sends nothing while no panel listens, then reports after playback-listening true or a positive startup reply", async () => {
+    const reports: Array<{ type: string }> = [];
     let tick: (() => void) | undefined;
-    let now = 1000;
-    let listeningResponse = { listening: false };
+    let listener: ((message: unknown, sender: unknown, respond: (value: unknown) => void) => unknown) | undefined;
+    let queryReply: { listening: boolean } = { listening: false };
     const eventHandlers: Record<string, () => void> = {};
     const media = {
-      currentTime: 10,
-      duration: 200,
-      paused: false,
-      ended: false,
-      playbackRate: 1,
+      currentTime: 10, duration: 200, paused: false, ended: false, playbackRate: 1,
       addEventListener: (event: string, handler: () => void) => { eventHandlers[event] = handler; },
       removeEventListener: () => undefined,
     };
-    const window = {
-      addEventListener: () => undefined,
-      removeEventListener: () => undefined,
-    };
-    const location = {
-      href: "https://www.youtube.com/watch?v=abcdefghijk",
-      origin: "https://www.youtube.com",
-      hostname: "www.youtube.com",
-      pathname: "/watch",
-    };
-
-    runInNewContext(contentScript, {
+    const load = () => runInNewContext(contentScript, {
       crypto: { randomUUID: () => "session-1" },
-      URL, Math, Number,
-      Date: { now: () => now },
-      location, window,
+      URL, Math, Number, Date,
+      location: { href: "https://www.youtube.com/watch?v=abcdefghijk", origin: "https://www.youtube.com", hostname: "www.youtube.com", pathname: "/watch" },
+      window: { addEventListener: () => undefined, removeEventListener: () => undefined },
       document: {
         title: "Video title - YouTube",
         querySelector: (selector: string) => selector === "video, audio" ? media : null,
         querySelectorAll: () => [],
       },
       chrome: { runtime: {
-        sendMessage: (message: { report: Record<string, unknown> }) => {
+        sendMessage: (message: { type: string }) => {
           reports.push(message);
-          return Promise.resolve(listeningResponse);
+          return Promise.resolve(message.type === "playback-listening-query" ? queryReply : { listening: true });
         },
-        onMessage: { addListener: () => undefined },
+        onMessage: { addListener: (next: typeof listener) => { listener = next; } },
       } },
       setInterval: (callback: () => void) => { tick = callback; return 1; },
       clearInterval: () => undefined,
     });
+    const flush = async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); };
 
-    const flushMicrotasks = async () => {
-      for (let i = 0; i < 5; i++) await Promise.resolve();
-    };
-
-    // First tick: initial send, response sets listening = false
+    load();
+    await flush();
     tick?.();
-    await flushMicrotasks();
-    expect(reports).toHaveLength(1);
-
-    // Advance time by 3 seconds: tick should be throttled
-    now += 3000;
-    tick?.();
-    await flushMicrotasks();
-    expect(reports).toHaveLength(1);
-
-    // Pause event: should send despite throttling
-    media.paused = true;
     eventHandlers.pause?.();
-    await flushMicrotasks();
-    expect(reports).toHaveLength(2);
+    eventHandlers.timeupdate?.();
+    await flush();
+    expect(reports.map(({ type }) => type)).toEqual(["playback-listening-query"]);
 
-    // Advance time by 5 seconds (total 8s since last send): tick still throttled
-    now += 5000;
+    listener?.({ type: "playback-listening", listening: true }, {}, () => undefined);
+    await flush();
     tick?.();
-    await flushMicrotasks();
-    expect(reports).toHaveLength(2);
+    expect(reports.filter(({ type }) => type === "playback-report").length).toBeGreaterThanOrEqual(2);
 
-    // Advance time by 11 seconds (total 16s since last send): tick should now send
-    now += 11000;
+    listener?.({ type: "playback-listening", listening: false }, {}, () => undefined);
+    reports.length = 0;
     tick?.();
-    await flushMicrotasks();
-    expect(reports).toHaveLength(3);
+    expect(reports).toHaveLength(0);
+
+    queryReply = { listening: true };
+    load();
+    await flush();
+    tick?.();
+    expect(reports.filter(({ type }) => type === "playback-report")).toHaveLength(1);
   });
 
   it("stops lifecycle when extension context is invalidated on sendMessage", async () => {
@@ -480,8 +457,11 @@ describe("YouTube chapter playback reports", () => {
         querySelectorAll: () => [],
       },
       chrome: { runtime: {
-        sendMessage: () => { throw new Error("Extension context invalidated."); },
-        onMessage: { addListener: () => undefined },
+        sendMessage: (message: { type: string }) => {
+          if (message.type !== "playback-report") return Promise.resolve();
+          throw new Error("Extension context invalidated.");
+        },
+        onMessage: { addListener: (listener: (message: unknown) => void) => listener({ type: "playback-listening", listening: true }) },
       } },
       setInterval: (callback: () => void) => { tick = callback; return 42; },
       clearInterval: (id: number) => { clearedIntervalId = id; },
@@ -492,3 +472,75 @@ describe("YouTube chapter playback reports", () => {
     expect(clearedIntervalId).toBe(42);
   });
 });
+
+function reportForYouTubeMusic(links: Array<{ textContent: string; href: string }>, chapters?: Array<Record<string, unknown>>): Record<string, unknown> | undefined {
+  const reports: Array<{ report: Record<string, unknown> }> = [];
+  let tick: (() => void) | undefined;
+  let messageListener: ((event: unknown) => void) | undefined;
+  const media = { currentTime: 12, duration: 180, playbackRate: 1, paused: false, ended: false, addEventListener: () => undefined, removeEventListener: () => undefined };
+  const window = { addEventListener: (_name: string, listener: (event: unknown) => void) => { messageListener = listener; } };
+  const location = { href: "https://music.youtube.com/watch?v=abcdefghijk", hostname: "music.youtube.com", pathname: "/watch", origin: "https://music.youtube.com" };
+  runInNewContext(contentScript, {
+    crypto: { randomUUID: () => "session-1" },
+    window, location, URL, Math, Number, Date,
+    document: {
+      title: "Song - YouTube Music",
+      querySelector: (selector: string) => selector === "video, audio" ? media : selector === "ytmusic-player-bar .title" ? { textContent: "Song" } : null,
+      querySelectorAll: (selector: string) => selector === "ytmusic-player-bar .byline a" ? links : [],
+    },
+    chrome: { runtime: { sendMessage: (message: { type: string; report: Record<string, unknown> }) => message.type === "playback-report" ? reports.push(message) : Promise.resolve(), onMessage: { addListener: (listener: (message: unknown) => void) => listener({ type: "playback-listening", listening: true }) } } },
+    setInterval: (callback: () => void) => { tick = callback; return 1; },
+  });
+  if (chapters) messageListener?.({ source: window, origin: location.origin, data: { type: "lyrics-everywhere-youtube-page-data", videoId: "abcdefghijk", chapters } });
+  tick?.();
+  return reports[0]?.report;
+}
+
+describe("YouTube Music artist parsing", () => {
+  it("only takes artist channel links from the byline, not album links", () => {
+    const report = reportForYouTubeMusic([
+      { textContent: "Artist A", href: "https://music.youtube.com/channel/UCaaaaaaaaaaaaaaaaaaaaaa" },
+      { textContent: "Artist B", href: "channel/UCbbbbbbbbbbbbbbbbbbbbbb" },
+      { textContent: "Album", href: "https://music.youtube.com/browse/MPREb_abc" },
+    ]);
+    expect(report?.artists).toEqual(["Artist A", "Artist B"]);
+  });
+
+  it("falls back to non-album links when no channel link exists", () => {
+    const report = reportForYouTubeMusic([
+      { textContent: "Some Artist", href: "https://music.youtube.com/browse/UCzzz" },
+      { textContent: "Album", href: "https://music.youtube.com/browse/MPREb_abc" },
+    ]);
+    expect(report?.artists).toEqual(["Some Artist"]);
+  });
+});
+
+describe("YouTube chapter artist spoofing", () => {
+  it("ignores an artist field posted with chapter data", () => {
+    const report = reportForVideoChapter([{ startMs: 0, title: "Haru Haru", artist: "Spoofed" }, { startMs: 100000, title: "Lies" }]);
+    expect(report).toMatchObject({ title: "Haru Haru", artists: ["i-dle"], artistVerified: false });
+  });
+});
+
+function reportForVideoChapter(chapters: Array<Record<string, unknown>>): Record<string, unknown> | undefined {
+  const reports: Array<{ report: Record<string, unknown> }> = [];
+  let tick: (() => void) | undefined;
+  let messageListener: ((event: unknown) => void) | undefined;
+  const media = { currentTime: 12, duration: 180, playbackRate: 1, paused: false, ended: false, addEventListener: () => undefined, removeEventListener: () => undefined };
+  const window = { addEventListener: (_name: string, listener: (event: unknown) => void) => { messageListener = listener; } };
+  const location = { href: "https://www.youtube.com/watch?v=abcdefghijk", hostname: "www.youtube.com", pathname: "/watch", origin: "https://www.youtube.com" };
+  runInNewContext(contentScript, {
+    crypto: { randomUUID: () => "session-1" },
+    window, location, URL, Math, Number, Date,
+    document: {
+      title: "Video - YouTube",
+      querySelector: (selector: string) => selector === "video, audio" ? media : selector === "ytd-watch-metadata ytd-channel-name a" ? { textContent: "i-dle" } : null,
+      querySelectorAll: () => [],
+    },
+    chrome: { runtime: { sendMessage: (message: { type: string; report: Record<string, unknown> }) => message.type === "playback-report" ? reports.push(message) : Promise.resolve(), onMessage: { addListener: (listener: (message: unknown) => void) => listener({ type: "playback-listening", listening: true }) } } },
+    setInterval: (callback: () => void) => { tick = callback; return 1; },
+  });
+  messageListener?.({ source: window, origin: location.origin, data: { type: "lyrics-everywhere-youtube-page-data", videoId: "abcdefghijk", chapters } });
+  tick?.();
+  return reports[0]?.report;
+}
