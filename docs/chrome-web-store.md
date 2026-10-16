@@ -16,30 +16,30 @@
 `Lyrics Everywhere 耳邊字幕`
 
 ### 簡短說明（Short Description，≤132 字元）
-`在 YouTube、YouTube Music、Spotify Web 播放時於側欄顯示 LRCLIB 同步歌詞與空耳；無歌詞影片可在本機辨識建立字幕。`
+`在 YouTube、YouTube Music、Spotify Web 播放時於側欄顯示 LRCLIB 同步歌詞與空耳；無同步歌詞的 YouTube 影片可在本機辨識建立字幕。`
 
 ### 詳細說明（Long Description，繁體中文）
 ```markdown
 【Lyrics Everywhere 耳邊字幕】
 
-在瀏覽器側欄（Side Panel）隨開隨唱！支援 YouTube、YouTube Music 與 Spotify Web，自動取得同步滾動歌詞與發音轉寫；無歌詞的冷門歌曲或翻唱混音，更可透過本機 WebGPU 辨識模型自動產生字幕。
+在瀏覽器側欄（Side Panel）隨開隨唱！支援 YouTube、YouTube Music 與 Spotify Web，自動取得同步滾動歌詞與空耳發音；沒有現成歌詞的 YouTube 影片（如翻唱、混音、現場演出），更可透過本機 WebGPU 辨識模型自動產生字幕。
 
 主要特色：
 • 側邊欄隨行播放：直接整合 Chrome / Edge 側邊欄，不遮擋主要網頁，工作或娛樂時隨時跟唱。
 • 多平台同步歌詞：支援 YouTube / YouTube Music / Spotify Web，自動向開放歌詞庫 LRCLIB 查詢動態時間軸歌詞。
-• 日韓多語言讀音標註：
-  - 日語：離線整合 Kuromoji IPADIC 辭典，自動為漢字標註平假名與羅馬拼音。
-  - 韓語：整合諺文發音規則轉寫系統。
-• 手動時間軸校時：遇到開頭有 MV 劇情或空白的影片，隨時微調時間偏移量（秒數），校時設定本機自動記錄。
-• 本機 AI 語音辨識（WebGPU）：
-  - 無現成歌詞的混音、翻唱或現場收音影片，可透過瀏覽器內建 WebGPU 於本機執行 Whisper 模型產生時間戳記字幕。
-  - 音訊完全在本機處理，不錄音、不上傳雲端伺服器，嚴格保護隱私。
-• 隱私優先、無追蹤：不含廣告、無追蹤分析代碼、不蒐集個人資料。
+• 日韓歌詞空耳：可選擇以「中文近音字」或「羅馬拼音」顯示發音，原文保留語言（中／英／日／韓）可自由勾選。
+  - 日語：內建 Kuromoji IPADIC 離線辭典，自動推算假名混寫詞中的漢字讀音；純漢字段落保留原文。
+  - 韓語：套用連音、鼻音化等發音規則轉寫，羅馬拼音採 Revised Romanization。
+• 歌詞校時（YouTube 單曲）：遇到開頭有 MV 劇情或空白的影片，可在校時模式點選正在唱的那句歌詞自動對齊、以 0.5 秒微調，或於設定中輸入偏移秒數；校時依影片與歌詞版本記錄於本機。
+• 本機 AI 語音辨識（WebGPU，YouTube 影片）：
+  - 沒有可用同步歌詞的 YouTube 影片，可透過瀏覽器 WebGPU 於本機執行 Whisper 模型，產生時間戳記字幕並可重播跟唱。
+  - 僅在使用者按下「建立字幕」時擷取該分頁音訊，全程於本機辨識，不保存音訊、不上傳雲端；首次使用需從 Hugging Face 下載 Whisper 模型並快取於瀏覽器。
+• 隱私優先、無追蹤：不含廣告、無追蹤分析代碼、不蒐集個人資料；歌詞查詢僅傳送曲名與歌手至 LRCLIB。
 
 使用方式：
 1. 開啟 YouTube、YouTube Music 或 Spotify Web 播放歌曲或影片。
 2. 點擊瀏覽器工具列上的「Lyrics Everywhere」圖示開啟側欄。
-3. 側欄即自動顯示同步歌詞與讀音；如需校時可於下方輸入微調秒數。
+3. 側欄即自動顯示同步歌詞與空耳；如需校時可按「校時」對齊，或於設定中微調秒數。
 ```
 
 ---
@@ -63,7 +63,7 @@
 | 主機 | 審查用途說明（Justification） |
 |---|---|
 | `https://huggingface.co/*`<br>`https://*.huggingface.co/*`<br>`https://hf.co/*`<br>`https://*.hf.co/*` | 僅在使用者於側欄點擊「載入辨識模型」時，由瀏覽器向 Hugging Face 下載開源 Whisper ONNX 權重檔並快取於本機。<br>*(Downloads open-source Whisper ONNX model weights to the local browser cache when the user initiates local transcription.)* |
-| `https://lrclib.net/*` | 依據當前播放歌曲的曲名與歌手，查詢開源 LRCLIB 資料庫中的同步動態歌詞。<br>*(Queries open-source LRCLIB API for synchronized time-coded lyrics matching current track title and artist.)* |
+| `https://lrclib.net/*` | 依據當前播放歌曲的曲名與歌手（自動比對失敗時，改用影片標題關鍵字）查詢開源 LRCLIB 資料庫中的同步動態歌詞。<br>*(Queries open-source LRCLIB API for synchronized time-coded lyrics using the current track title and artist, or title keywords as a fallback.)* |
 | `https://www.youtube.com/*`<br>`https://music.youtube.com/*`<br>`https://open.spotify.com/*` | 於支援的播放頁面注入 content script 讀取播放器時間、曲名與播放狀態，以及在使用者切換分頁時進行分頁清單查詢。<br>*(Executes content scripts on supported media pages to detect playback time, track title, and media state for lyrics synchronization.)* |
 
 ---
@@ -72,10 +72,9 @@
 
 在 Chrome Web Store 的「隱私權實務」（Privacy practices）分頁填寫：
 
-- **單一用途：** 是（Yes）
 - **遠端程式碼（Remote Code）：** 否（No，所有程式碼均隨擴充功能打包；模型權重為資料檔，由本機已打包之 ONNX Runtime WASM 執行）。
 - **資料蒐集聲明：**
-  - **網站內容（Website Content）：** 本機處理（由 content script 讀取播放進度與曲名，僅於本機記憶體與 LRCLIB 查詢使用，不蒐集或外傳個人身分）。
+  - **網站內容（Website Content）：** 勾選（content script 讀取播放進度、曲名與歌手；曲名、歌手或標題關鍵字會送至 LRCLIB 查詢歌詞，不蒐集或外傳個人身分）。
   - **使用者活動（User Activity）：** 不蒐集。
   - **個人身分資訊（Personally Identifiable Information）：** 不蒐集。
   - **驗證憑證（Authentication Information）：** 不蒐集。
@@ -92,17 +91,18 @@
 
 ## 5. 商店素材清單（Store Assets Checklist）
 
-所有素材均已產生並存放於專案根目錄之 `store-assets/`，亦可隨時透過 `pnpm run build:store-assets` 重新產出：
+圖示與宣傳橫幅存放於專案根目錄之 `store-assets/`；宣傳橫幅可透過 `pnpm run build:store-assets` 重新產出（目前渲染腳本僅支援 macOS 的 Microsoft Edge）。螢幕截圖需自行手動截取真實畫面：
 
 1. **商店圖示（Store Icon）：**
    - 檔案：`store-assets/store-icon-128x128.png`
-   - 規格：128×128 PNG（透明度背景，無外框圓角，商店自動切圓角）
-2. **螢幕截圖（Screenshots，共 4 張）：**
-   - 規格：**1280×800 PNG**（符合商店 16:10 強制比例）
-   - `store-assets/screenshot-1-synced-lyrics.png`：YouTube 播放畫面 + 側欄動態歌詞滾動，日語漢字振假名與中文空耳標註，珊瑚粉螢光筆高亮（主視覺）。
-   - `store-assets/screenshot-2-timing-settings.png`：時間軸即時校正設定彈窗（微調秒數偏移記憶）與空耳顯示偏好（中文近音字/羅馬拼音）。
-   - `store-assets/screenshot-3-manual-lyrics.png`：Spotify 播放畫面 + 手動搜尋 LRCLIB 完整開放歌詞庫，多版本即時預覽切換。
-   - `store-assets/screenshot-4-local-transcription.png`：現場 Live / 翻唱影片使用本機 WebGPU Whisper 離線辨識自動生成時間戳字幕（強調 100% 隱私保護）。
+   - 規格：128×128 PNG（建議圖案四周保留透明邊距）
+2. **螢幕截圖（Screenshots，手動截取，1–5 張）：**
+   - 規格：**1280×800**（或 640×400）PNG／JPEG，不含透明。
+   - 建議畫面（須為真實操作畫面）：
+     - 同步歌詞：YouTube 播放畫面 + 側欄五行跟唱視窗與空耳。
+     - 校時：「校時」模式或設定視窗中的歌詞時間偏移。
+     - 手動指定：「手動指定歌詞」區段與「版本 (N)」候選清單。
+     - 本機字幕：無同步歌詞的 YouTube 影片建立字幕的進度畫面。
 3. **宣傳橫幅（Promo Tiles）：**
    - **小型宣傳橫幅（Small Promo Tile，必填/建議）：**
      - 檔案：`store-assets/promo-tile-small-440x280.png`
@@ -121,7 +121,7 @@
 3. 首次註冊需支付一次性註冊費 **$5 美元** 並填寫開發者聯絡資訊。
 
 ### 步驟 2：打包並上傳擴充功能套件
-1. 於終端機執行：
+1. 於終端機執行（腳本使用 `rm`、`mkdir`、`zip`，Windows 請在 Git Bash 中執行並先安裝 `zip`）：
    ```bash
    pnpm run package:extension
    ```
@@ -133,9 +133,9 @@
 2. **摘要（Short Description）**：填入第 2 節之簡短說明（≤132 字元）
 3. **詳細說明（Detailed Description）**：複製第 2 節之詳細說明 Markdown 內容
 4. **圖示**：上傳 `store-assets/store-icon-128x128.png`
-5. **螢幕截圖**：依序上傳 `store-assets/screenshot-1-synced-lyrics.png` 至 `screenshot-4-local-transcription.png`
+5. **螢幕截圖**：上傳第 5 節說明的手動截圖（1280×800 或 640×400）
 6. **小型宣傳橫幅**：上傳 `store-assets/promo-tile-small-440x280.png`
-7. **類別（Category）**：選擇 **實用工具 (Workflow & Planning / Tools)** 或 **娛樂 (Entertainment)**
+7. **類別（Category）**：選擇 **娛樂 (Lifestyle › Entertainment)**（Edge Add-ons 亦可選 Entertainment）
 8. **官方網站 / 支援網址**：填入專案網址或 GitHub 儲存庫
 
 ### 步驟 4：填寫隱私權實務問卷（Privacy Practices）
@@ -143,10 +143,10 @@
 2. **權限原因（Permissions）**：
    - 依序複製第 3 節提供的 Justification（可填中文或英文）。
 3. **資料使用情形（Data Usage）**：
-   - 勾選「網站內容 (Website Content)」，說明文字填寫：「依據播放頁面標題與時間於本機進行動態歌詞同步查詢與顯示，不蒐集或外傳個人身分資料。」
+   - 勾選「網站內容 (Website Content)」，說明文字填寫：「讀取播放頁面的曲名、歌手與播放進度，曲名、歌手或標題關鍵字會送至 LRCLIB 查詢同步歌詞並於本機顯示，不蒐集或外傳個人身分資料。」
    - 其餘項目皆勾選「否 (No)」。
    - 勾選三項承諾（不向第三方出售資料、不將資料用於非核心功能、不進行信用評估）。
-4. **隱私權政策網址**：填入已部署的隱私權政策網頁（如 Cloudflare Pages 或 GitHub Pages，對應本專案 `site/index.html`）。
+4. **隱私權政策網址**：填入已部署的隱私權政策網頁（GitHub Pages，對應本專案 `site/index.html`，由 `pages.yml` 部署）。
 
 ### 步驟 5：分發設定（Distribution）
 1. **可見度（Visibility）**：選擇「公開 (Public)」。

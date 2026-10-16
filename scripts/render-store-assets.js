@@ -2,10 +2,6 @@ import fs from "fs";
 import path from "path";
 import { execSync } from "child_process";
 import {
-  generateScreenshot1Html,
-  generateScreenshot2Html,
-  generateScreenshot3Html,
-  generateScreenshot4Html,
   generateSmallPromoTileHtml,
   generateMarqueePromoTileHtml
 } from "./build-store-assets.js";
@@ -14,10 +10,6 @@ const outDir = path.resolve("store-assets");
 fs.mkdirSync(outDir, { recursive: true });
 
 const targets = [
-  { name: "screenshot-1-synced-lyrics.png", w: 1280, h: 800, html: generateScreenshot1Html() },
-  { name: "screenshot-2-timing-settings.png", w: 1280, h: 800, html: generateScreenshot2Html() },
-  { name: "screenshot-3-manual-lyrics.png", w: 1280, h: 800, html: generateScreenshot3Html() },
-  { name: "screenshot-4-local-transcription.png", w: 1280, h: 800, html: generateScreenshot4Html() },
   { name: "promo-tile-small-440x280.png", w: 440, h: 280, html: generateSmallPromoTileHtml() },
   { name: "promo-tile-marquee-1400x560.png", w: 1400, h: 560, html: generateMarqueePromoTileHtml() }
 ];
