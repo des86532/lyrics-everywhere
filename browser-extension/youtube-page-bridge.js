@@ -43,7 +43,10 @@
         : parts[0] * 60 + parts[1];
       return [{ startMs: seconds * 1000, title: match[2].trim() }];
     });
-    return descriptionChapters.length >= 2 ? descriptionChapters : chapters;
+    // YouTube's own rules for description chapters: start at 0:00, at least 3, increasing, each at least 10 s.
+    const valid = descriptionChapters.length >= 3 && descriptionChapters[0].startMs === 0 &&
+      descriptionChapters.every((chapter, index) => index === 0 || chapter.startMs - descriptionChapters[index - 1].startMs >= 10000);
+    return valid ? descriptionChapters : chapters;
   }
 
   function responseMusicCredits(data, videoId) {

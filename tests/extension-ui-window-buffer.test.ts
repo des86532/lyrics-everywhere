@@ -37,6 +37,8 @@ describe("WindowBuffer", () => {
     const final = timeline.flush();
     expect(final).toHaveLength(1);
     expect(final[0]?.startMs).toBe(10000);
+    expect(final[0]?.final).toBe(true);
+    expect(initial[0]?.final).toBeUndefined();
     expect(final[0]?.samples[0]).toBe(0.5);
     expect(final[0]?.samples[2 * 16000]).toBe(0.25);
     expect(final[0]?.samples[4 * 16000]).toBe(0);

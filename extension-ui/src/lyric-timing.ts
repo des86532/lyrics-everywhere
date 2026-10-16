@@ -5,6 +5,23 @@ export function isValidLyricOffset(value: unknown): value is number {
     Math.abs(value) <= MAX_LYRIC_OFFSET_MS;
 }
 
+export function parseLyricTimingCorrections(value: unknown): Record<string, number> {
+  const valid: Record<string, number> = {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) return valid;
+  for (const [key, offsetMs] of Object.entries(value)) {
+    if (/^[A-Za-z0-9_-]{11}:[a-f0-9]{64}$/u.test(key) && isValidLyricOffset(offsetMs)) valid[key] = offsetMs;
+  }
+  return valid;
+}
+
+/** Applies one offset change (0 removes it) to the latest stored corrections so concurrent side panels never overwrite each other's entries. */
+export function updateLyricTimingCorrections(stored: unknown, key: string, offsetMs: number): Record<string, number> {
+  const corrections = parseLyricTimingCorrections(stored);
+  if (offsetMs === 0) delete corrections[key];
+  else corrections[key] = offsetMs;
+  return corrections;
+}
+
 /** Parses "5", "-2.5" or "+1:05.3" into milliseconds. Returns null when malformed or out of range. */
 export function parseLyricOffset(input: string): number | null {
   const match = /^([+-])?(?:(\d+):)?(\d+(?:\.\d{1,3})?)$/u.exec(input.trim().replaceAll("：", ":"));

@@ -1,8 +1,11 @@
 export interface AudioWindow {
   startMs: number;
   samples: Float32Array<ArrayBuffer>;
+  final?: boolean;
 }
 
+export const WINDOW_SECONDS = 12;
+export const STEP_SECONDS = 10;
 
 export class WindowBuffer {
   private readonly capacity: number;
@@ -14,8 +17,8 @@ export class WindowBuffer {
 
   constructor(private readonly sampleRate: number) {
     if (!Number.isFinite(sampleRate) || sampleRate <= 0) throw new RangeError("sampleRate must be positive");
-    this.capacity = Math.round(sampleRate * 12);
-    this.stepSamples = Math.round(sampleRate * 10);
+    this.capacity = Math.round(sampleRate * WINDOW_SECONDS);
+    this.stepSamples = Math.round(sampleRate * STEP_SECONDS);
     this.buffer = new Float32Array(this.capacity);
     this.nextWindowEnd = this.capacity;
   }
@@ -42,7 +45,7 @@ export class WindowBuffer {
     if (this.totalSamples === 0 || this.totalSamples <= this.emittedThroughSample) return [];
     const startSample = this.nextWindowEnd - this.capacity;
     this.emittedThroughSample = this.totalSamples;
-    return [this.createWindow(startSample)];
+    return [{ ...this.createWindow(startSample), final: true }];
   }
 
   clear(): void {

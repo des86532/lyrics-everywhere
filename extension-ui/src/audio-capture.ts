@@ -272,7 +272,7 @@ export class AudioCapture {
       source.start();
       const rendered = await offline.startRendering();
       if (generation !== this.generation || this.stopped) return;
-      this.options.onWindow({ startMs: window.startMs, samples: rendered.getChannelData(0).slice() });
+      this.options.onWindow({ startMs: window.startMs, samples: rendered.getChannelData(0).slice(), final: window.final });
     } catch {
       if (generation === this.generation) this.options.onError("音訊重取樣失敗。請停止後重新選擇分頁音訊。");
     }

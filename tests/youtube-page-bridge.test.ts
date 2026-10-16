@@ -87,7 +87,7 @@ describe("YouTube chapter bridge", () => {
   it("falls back to timestamped lines in the video description", () => {
     const { messages } = setupBridge({
       response: {
-        videoDetails: { videoId: "abcdefghijk", shortDescription: "0:00 Haru Haru\n3:45 Lies\nNo chapter" },
+        videoDetails: { videoId: "abcdefghijk", shortDescription: "0:00 Haru Haru\n3:45 Lies\n7:00 Bad Boy\nNo chapter" },
       },
     });
 
@@ -95,7 +95,19 @@ describe("YouTube chapter bridge", () => {
     expect(msg.chapters).toEqual([
       { startMs: 0, title: "Haru Haru" },
       { startMs: 225000, title: "Lies" },
+      { startMs: 420000, title: "Bad Boy" },
     ]);
+  });
+
+  it.each([
+    ["only two timestamps", "0:00 Intro\n1:02 Chorus"],
+    ["first timestamp is not 0:00", "0:05 Intro\n1:00 Verse\n2:00 Chorus"],
+    ["a segment is shorter than 10 seconds", "0:00 Intro\n0:09 Verse\n2:00 Chorus"],
+    ["timestamps are not increasing", "0:00 Intro\n2:00 Verse\n1:00 Chorus"],
+  ])("ignores description timestamps when %s", (_name, shortDescription) => {
+    const { messages } = setupBridge({ response: { videoDetails: { videoId: "abcdefghijk", shortDescription } } });
+
+    expect((messages[0] as { chapters: unknown[] }).chapters).toEqual([]);
   });
 
   it("extracts music credits from window.ytInitialData", () => {

@@ -4,13 +4,14 @@ import { KoreanTranscriber } from "../../src/pronunciation/korean-transcriber.js
 import { JapaneseTranscriber } from "../../src/pronunciation/japanese-transcriber.js";
 import { TranscriberRegistry } from "../../src/pronunciation/transcriber-registry.js";
 import type { PhoneticSystem } from "../../src/domain/types.js";
+import { STEP_SECONDS, WINDOW_SECONDS } from "./window-buffer.js";
 import { TranscriptLines, type TranscriptLine, type TimestampedChunk } from "./transcript-lines.js";
 import type { SyncedLyrics } from "../../src/domain/types.js";
 import { durationTolerance, fetchLrclibRecord, lrclibFetcher, parseRecordLyrics, searchLyricsByVideoTitle, searchLyricsForArtists, searchLyricsForIdentity, selectAutomaticLyrics, type LrclibRecord } from "./lyrics.js";
 import { selectYouTubeMusicCredit, type YouTubeMusicCredit } from "./youtube-music-credit.js";
 import { exactSyncedCandidatesForArtists, lyricFocusAt, lyricWindowStart, LYRICS_WINDOW_SIZE, mixReplayWindow, playbackPositionAt, playbackTrackPositionAt, specialVideoKind, titleLookupKeyword, type LyricFocus, type PlaybackReport, type SpecialVideoKind } from "./playback.js";
-import { MANUAL_LYRICS_STORAGE_KEY, MAX_MANUAL_SELECTIONS, manualLyricsPrompt, parseManualLyricsInput, parseManualSelections, extractLyricSnippet, formatDuration, rankCandidateRecords } from "./manual-lyrics.js";
-import { alignedLyricOffset, formatLyricOffset, isValidLyricOffset, lyricPositionForVideo, nudgeLyricOffset, parseLyricOffset } from "./lyric-timing.js";
+import { MANUAL_LYRICS_STORAGE_KEY, MAX_MANUAL_SELECTIONS, manualLyricsPrompt, parseManualLyricsInput, parseManualSelections, parseRejectedVideoIds, updateManualSelections, updateRejectedVideoIds, extractLyricSnippet, formatDuration, rankCandidateRecords } from "./manual-lyrics.js";
+import { alignedLyricOffset, formatLyricOffset, lyricPositionForVideo, nudgeLyricOffset, parseLyricOffset, parseLyricTimingCorrections, updateLyricTimingCorrections } from "./lyric-timing.js";
 import { MixCache, type CompleteMix } from "./mix-cache.js";
 import {
   DEFAULT_DISPLAY_PREFERENCES,
@@ -47,6 +48,7 @@ type ExtensionApi = {
   };
   storage?: {
     local?: DisplayPreferencesStorage & { remove?(keys: string): Promise<void> };
+    onChanged?: { addListener(listener: (changes: Record<string, { newValue?: unknown }>, area: string) => void): void };
   };
 };
 type DisplayLine = TranscriptLine & { pronunciation: string };
@@ -342,7 +344,8 @@ const YOUTUBE_MEDIA_ID = /^[A-Za-z0-9_-]{11}$/u;
 const CONTENT_HASH = /^[a-f0-9]{64}$/u;
 let lyricTimingOffsets: Record<string, number> = {};
 let lyricTimingInputKey: string | null = null;
-let lyricTimingWriteQueue: Promise<void> = Promise.resolve();
+let storageWriteQueue: Promise<void> = Promise.resolve();
+let storageWritesPending = 0;
 function latestPlaybackReport(): PlaybackReport | null {
   return playbackReport;
 }
@@ -360,6 +363,7 @@ let mixRecognizedLines = 0;
 let activeReplay: CompleteMix | null = null;
 let replayFocusIndex = -1;
 let mixNextWindowIndex = 0;
+let mixFinalWindowIndex = -1;
 let mixPersistenceQueue: Promise<void> = Promise.resolve();
 let mixDrainResolver: (() => void) | null = null;
 let mixFinalizing = false;
@@ -489,7 +493,10 @@ function handleMixResult(message: WorkerMessage): void {
   const videoId = activeMixVideoId;
   const startMs = mixFirstAnchor.positionMs + (message.startMs ?? 0);
   lastEmptyAudioState = null;
-  const lines = transcriptLines.append(startMs, message.chunks ?? [])
+  const lines = transcriptLines.append(startMs, message.chunks ?? [], {
+    windowMs: WINDOW_SECONDS * 1000,
+    commitBeforeMs: message.windowIndex === mixFinalWindowIndex ? undefined : STEP_SECONDS * 1000,
+  })
     .filter((line) => line.startMs < activeMixDurationMs && line.endMs > line.startMs)
     .map((line) => ({ ...line, endMs: Math.min(line.endMs, activeMixDurationMs) }));
   mixRecognizedLines += lines.length;
@@ -837,30 +844,44 @@ async function initializeLyricTimingCorrections(): Promise<void> {
   try {
     const storage = chromeApi?.storage?.local;
     if (!storage) throw new Error("storage.local unavailable");
-    const stored = (await storage.get(LYRIC_TIMING_STORAGE_KEY))[LYRIC_TIMING_STORAGE_KEY];
-    if (!stored || typeof stored !== "object" || Array.isArray(stored)) {
-      lyricTimingOffsets = {};
-      return;
-    }
-    const valid: Record<string, number> = {};
-    for (const [key, value] of Object.entries(stored)) {
-      if (/^[A-Za-z0-9_-]{11}:[a-f0-9]{64}$/u.test(key) && isValidLyricOffset(value)) valid[key] = value;
-    }
-    lyricTimingOffsets = valid;
+    lyricTimingOffsets = parseLyricTimingCorrections((await storage.get(LYRIC_TIMING_STORAGE_KEY))[LYRIC_TIMING_STORAGE_KEY]);
   } catch {
     lyricTimingOffsets = {};
     setLyricTimingFeedback("無法讀取校時資料；本次操作仍可使用，但不會載入已保存校正。");
   }
 }
 
-function persistLyricTimingCorrections(): void {
-  lyricTimingWriteQueue = lyricTimingWriteQueue.then(async () => {
-    const storage = chromeApi?.storage?.local;
-    if (!storage) throw new Error("storage.local unavailable");
-    const snapshot = { ...lyricTimingOffsets };
-    await storage.set({ [LYRIC_TIMING_STORAGE_KEY]: snapshot });
+// Read-latest, apply one change, write: serialized in this panel and (via Web Locks) across side panels.
+function updateStored<T>(key: string, change: (stored: unknown) => T, serialize: (value: T) => unknown, apply: (value: T) => void): Promise<void> {
+  storageWritesPending += 1;
+  const run = storageWriteQueue.then(async () => {
+    const write = async () => {
+      const storage = chromeApi?.storage?.local;
+      if (!storage) throw new Error("storage.local unavailable");
+      const next = change((await storage.get(key))[key]);
+      await storage.set({ [key]: serialize(next) });
+      if (storageWritesPending === 1) apply(next);
+    };
+    if (navigator.locks) await navigator.locks.request("lyrics-everywhere-storage", write);
+    else await write();
+  });
+  storageWriteQueue = run.catch(() => {}).finally(() => { storageWritesPending -= 1; });
+  return run;
+}
+
+function refreshLyricTimingViews(): void {
+  updateLyricTimingControls();
+  renderSelectedLyrics();
+  renderCalibrationControls();
+}
+
+function persistLyricTimingCorrection(key: string, offsetMs: number): void {
+  void updateStored(LYRIC_TIMING_STORAGE_KEY, (stored) => updateLyricTimingCorrections(stored, key, offsetMs), (value) => value, (value) => {
+    lyricTimingOffsets = value;
+    refreshLyricTimingViews();
+  }).then(() => {
     setLyricTimingFeedback("校時已保存於此瀏覽器。");
-  }).catch(() => {
+  }, () => {
     setLyricTimingFeedback("校時已在本頁套用，但本機儲存失敗，重新開啟後不會保留。");
   });
 }
@@ -869,29 +890,16 @@ async function initializeAiRejections(): Promise<void> {
   try {
     const storage = chromeApi?.storage?.local;
     if (!storage) throw new Error("storage.local unavailable");
-    const stored = (await storage.get(AI_REJECTED_STORAGE_KEY))[AI_REJECTED_STORAGE_KEY];
-    if (!Array.isArray(stored)) {
-      aiRejectedVideoIds = [];
-      return;
-    }
-    aiRejectedVideoIds = stored
-      .filter((item): item is string => typeof item === "string" && /^[A-Za-z0-9_-]{11}$/u.test(item))
-      .slice(-200);
+    aiRejectedVideoIds = parseRejectedVideoIds((await storage.get(AI_REJECTED_STORAGE_KEY))[AI_REJECTED_STORAGE_KEY]);
   } catch {
     aiRejectedVideoIds = [];
   }
 }
 
-function persistAiRejections(): void {
-  try {
-    const storage = chromeApi?.storage?.local;
-    if (!storage) throw new Error("storage.local unavailable");
-    void Promise.resolve(storage.set({ [AI_REJECTED_STORAGE_KEY]: aiRejectedVideoIds })).catch(() => {
-      setAiLookupStatus("已在本頁停用，但本機儲存失敗，重新開啟後不會保留。");
-    });
-  } catch {
+function persistAiRejection(videoId: string, rejected: boolean): void {
+  void updateStored(AI_REJECTED_STORAGE_KEY, (stored) => updateRejectedVideoIds(stored, videoId, rejected), (value) => value, (value) => { aiRejectedVideoIds = value; }).catch(() => {
     setAiLookupStatus("已在本頁停用，但本機儲存失敗，重新開啟後不會保留。");
-  }
+  });
 }
 
 function manualTarget(): PlaybackReport | null {
@@ -994,7 +1002,7 @@ async function selectCandidateRecord(record: LrclibRecord): Promise<void> {
     manualSelections.set(report.mediaId, record.id);
     if (manualSelections.size > MAX_MANUAL_SELECTIONS) manualSelections.delete(manualSelections.keys().next().value!);
     cacheManualRecord(record);
-    persistManualSelections();
+    persistManualSelection(report.mediaId, record.id);
     manualLyricsInput.value = "";
     currentLyricsRecordId = record.id;
     renderManualLyricsControls();
@@ -1019,16 +1027,25 @@ async function initializeManualSelections(): Promise<void> {
   }
 }
 
-function persistManualSelections(): void {
-  const failed = () => { manualLyricsStatus.textContent = "已在本頁套用，但本機儲存失敗，重新開啟後不會保留。"; };
-  try {
-    const storage = chromeApi?.storage?.local;
-    if (!storage) throw new Error("storage.local unavailable");
-    void Promise.resolve(storage.set({ [MANUAL_LYRICS_STORAGE_KEY]: [...manualSelections] })).catch(failed);
-  } catch {
-    failed();
-  }
+function persistManualSelection(videoId: string, lrclibId: number | null): void {
+  void updateStored(MANUAL_LYRICS_STORAGE_KEY, (stored) => updateManualSelections(stored, videoId, lrclibId), (value) => [...value], (value) => {
+    manualSelections = value;
+    renderManualLyricsControls();
+  }).catch(() => { manualLyricsStatus.textContent = "已在本頁套用，但本機儲存失敗，重新開啟後不會保留。"; });
 }
+
+chromeApi?.storage?.onChanged?.addListener((changes, area) => {
+  if (area !== "local" || storageWritesPending > 0) return;
+  if (LYRIC_TIMING_STORAGE_KEY in changes) {
+    lyricTimingOffsets = parseLyricTimingCorrections(changes[LYRIC_TIMING_STORAGE_KEY]!.newValue);
+    refreshLyricTimingViews();
+  }
+  if (AI_REJECTED_STORAGE_KEY in changes) aiRejectedVideoIds = parseRejectedVideoIds(changes[AI_REJECTED_STORAGE_KEY]!.newValue);
+  if (MANUAL_LYRICS_STORAGE_KEY in changes) {
+    manualSelections = parseManualSelections(changes[MANUAL_LYRICS_STORAGE_KEY]!.newValue);
+    renderManualLyricsControls();
+  }
+});
 
 function cacheManualRecord(record: LrclibRecord): void {
   manualRecordCache.delete(record.id);
@@ -1083,7 +1100,7 @@ async function applyManualLyrics(): Promise<void> {
     cacheManualRecord(record);
     manualLyricsInput.value = "";
     manualLyricsStatus.textContent = `已指定 LRCLIB ${record.id}「${record.trackName}」— ${record.artistName}。`;
-    persistManualSelections();
+    persistManualSelection(report.mediaId, record.id);
     void startSingleDetection();
   } catch (error) {
     manualLyricsStatus.textContent = `LRCLIB 查詢失敗：${error instanceof Error ? error.message : "未知錯誤"}`;
@@ -1101,7 +1118,7 @@ function setLyricOffset(key: string, offsetMs: number): void {
   lyricTimingInputKey = key;
   updateLyricTimingControls();
   renderSelectedLyrics();
-  persistLyricTimingCorrections();
+  persistLyricTimingCorrection(key, offsetMs);
   renderCalibrationControls();
 }
 
@@ -1350,7 +1367,7 @@ function startLyricsClock(): void {
         lyricsStatus.textContent = "播放來源失聯；歌詞位置已凍結，重新收到播放資訊後恢復。";
       }
     }
-    if (singalongMode === "mix-first" && mixFirstAnchor && playbackReport && Date.now() - playbackReport.capturedAtMs > 3000) {
+    if (singalongMode === "mix-first" && mixFirstAnchor && !mixFinalizing && playbackReport && Date.now() - playbackReport.capturedAtMs > 3000) {
       void failMix("播放來源超過 3 秒沒有回報；本次字幕標記為未完成。");
     }
     if (singalongMode === "mix-replay" && activeReplay && playbackReport) {
@@ -1409,7 +1426,7 @@ function clearSelectedTrack(message: string): void {
 
 
 function processMixPlaybackReport(report: PlaybackReport): void {
-  if (singalongMode !== "mix-first" || !activeMixVideoId) return;
+  if (singalongMode !== "mix-first" || !activeMixVideoId || mixFinalizing) return;
   const sessionGeneration = generation;
   if (!captureConnected && report.state === "playing") {
     void failMix("音訊尚未連接就開始播放；請先停回 0 秒，等「音訊已連接」後再播放。", sessionGeneration);
@@ -1891,6 +1908,7 @@ async function startMixFirst(): Promise<void> {
     mixPersistedWindows = 0;
     mixRecognizedLines = 0;
     mixNextWindowIndex = 0;
+    mixFinalWindowIndex = -1;
     mixPersistenceQueue = Promise.resolve();
     mixDrainResolver = null;
     mixFinalizing = false;
@@ -1930,6 +1948,7 @@ async function startMixFirst(): Promise<void> {
         }
         mixWindowCount += 1;
         const windowIndex = mixNextWindowIndex++;
+        if (window.final) mixFinalWindowIndex = windowIndex;
         worker.postMessage({
           type: "transcribe",
           generation: sessionGeneration,
@@ -2081,14 +2100,14 @@ aiMatchRejectButton.addEventListener("click", () => {
   if (!mediaId) return;
   if (aiMatchRejectButton.textContent === "恢復自動比對") {
     aiRejectedVideoIds = aiRejectedVideoIds.filter((id) => id !== mediaId);
-    persistAiRejections();
+    persistAiRejection(mediaId, false);
     void startSingleDetection();
   } else {
     if (!aiRejectedVideoIds.includes(mediaId)) {
       aiRejectedVideoIds.push(mediaId);
       if (aiRejectedVideoIds.length > 200) aiRejectedVideoIds.shift();
     }
-    persistAiRejections();
+    persistAiRejection(mediaId, true);
     void startSingleDetection();
   }
 });
@@ -2107,7 +2126,7 @@ clearManualLyricsButton.addEventListener("click", () => {
   if (!report) return;
   manualSelections.delete(report.mediaId);
   manualLyricsStatus.textContent = "已清除；改回自動比對。";
-  persistManualSelections();
+  persistManualSelection(report.mediaId, null);
   renderManualLyricsControls();
   void startSingleDetection();
 });

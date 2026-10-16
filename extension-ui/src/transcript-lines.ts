@@ -12,12 +12,15 @@ export interface TranscriptLine {
 export class TranscriptLines {
   private committedEndMs = -1;
 
-  append(startMs: number, chunks: TimestampedChunk[]): TranscriptLine[] {
+  append(startMs: number, chunks: TimestampedChunk[], { windowMs, commitBeforeMs }: { windowMs?: number; commitBeforeMs?: number } = {}): TranscriptLine[] {
     const lines: TranscriptLine[] = [];
     for (const chunk of chunks) {
-      const [relativeStart, relativeEnd] = chunk.timestamp;
+      const [relativeStart, rawRelativeEnd] = chunk.timestamp;
       const text = chunk.text.trim();
-      if (!text || relativeStart === null || relativeEnd === null || !Number.isFinite(relativeStart) || !Number.isFinite(relativeEnd) || relativeEnd <= relativeStart) continue;
+      if (!text || relativeStart === null || rawRelativeEnd === null || !Number.isFinite(relativeStart) || !Number.isFinite(rawRelativeEnd) || rawRelativeEnd <= relativeStart) continue;
+      if (windowMs !== undefined && relativeStart * 1000 >= windowMs) continue;
+      if (commitBeforeMs !== undefined && relativeStart * 1000 >= commitBeforeMs) continue;
+      const relativeEnd = windowMs === undefined ? rawRelativeEnd : Math.min(rawRelativeEnd, windowMs / 1000);
       const absoluteStart = Math.round(startMs + relativeStart * 1000);
       const absoluteEnd = Math.round(startMs + relativeEnd * 1000);
       if (absoluteStart < this.committedEndMs || absoluteEnd <= this.committedEndMs) continue;

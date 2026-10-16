@@ -95,7 +95,7 @@
       version: 2,
       sessionId,
       appId: "spotify-web",
-      pageUrl: location.href,
+      pageUrl: `https://open.spotify.com/track/${trackId}`,
       mediaId: trackId,
       title,
       artists,

@@ -29,6 +29,12 @@ describe("LRC Parser", () => {
     expect(result.lines[2]?.endMs).toBe(26000); // 4000ms default tail
   });
 
+  it("ends lines sharing a timestamp at the next strictly later line", () => {
+    const raw = ["[00:10.00]안녕", "[00:10.00]Hello", "[00:14.00]다음"].join(String.fromCharCode(10));
+    const result = parseLrcWithHash(raw, "test-same-ts", "lrclib", "e".repeat(64));
+    expect(result.lines.map((line) => line.endMs)).toEqual([14000, 14000, 18000]);
+  });
+
   it("handles offset tags correctly", () => {
     const raw = `
 [offset:500]

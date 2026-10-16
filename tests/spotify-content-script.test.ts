@@ -7,8 +7,7 @@ const spotifyContentScript = readFileSync(
   "utf8"
 );
 
-describe("Spotify content script", () => {
-  it("extracts playback report with non-English UI locale based on media.paused state", () => {
+const runScript = (href: string) => {
     const reports: Array<{ report: Record<string, unknown> }> = [];
     let tick: (() => void) | undefined;
 
@@ -49,7 +48,7 @@ describe("Spotify content script", () => {
       Math,
       Number,
       Date: { now: () => 1000 },
-      location: { href: "https://open.spotify.com/track/11dFghVXANMlKmJXsNCbNl" },
+      location: { href },
       window: { addEventListener: () => undefined, removeEventListener: () => undefined },
       document: {
         querySelector: (selector: string) => {
@@ -81,7 +80,12 @@ describe("Spotify content script", () => {
     });
 
     tick?.();
+    return reports;
+};
 
+describe("Spotify content script", () => {
+  it("extracts playback report with non-English UI locale based on media.paused state", () => {
+    const reports = runScript("https://open.spotify.com/track/11dFghVXANMlKmJXsNCbNl");
     expect(reports[0]?.report).toMatchObject({
       appId: "spotify-web",
       mediaId: "11dFghVXANMlKmJXsNCbNl",
@@ -92,5 +96,10 @@ describe("Spotify content script", () => {
       durationMs: 180000,
       playbackRate: 1,
     });
+  });
+
+  it("reports the canonical track page URL when playing from a playlist page", () => {
+    const reports = runScript("https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M");
+    expect(reports[0]?.report.pageUrl).toBe("https://open.spotify.com/track/11dFghVXANMlKmJXsNCbNl");
   });
 });

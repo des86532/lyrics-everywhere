@@ -68,6 +68,26 @@ export function parseManualSelections(value: unknown): Map<string, number> {
   return selections;
 }
 
+// Applies one change to the latest stored value so concurrent side panels never overwrite each other's entries.
+export function updateManualSelections(stored: unknown, videoId: string, lrclibId: number | null): Map<string, number> {
+  const selections = parseManualSelections(stored);
+  selections.delete(videoId);
+  if (lrclibId !== null) selections.set(videoId, lrclibId);
+  while (selections.size > MAX_MANUAL_SELECTIONS) selections.delete(selections.keys().next().value as string);
+  return selections;
+}
+
+export function parseRejectedVideoIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string" && /^[A-Za-z0-9_-]{11}$/u.test(item)).slice(-MAX_MANUAL_SELECTIONS);
+}
+
+export function updateRejectedVideoIds(stored: unknown, videoId: string, rejected: boolean): string[] {
+  const ids = parseRejectedVideoIds(stored).filter((id) => id !== videoId);
+  if (rejected) ids.push(videoId);
+  return ids.slice(-MAX_MANUAL_SELECTIONS);
+}
+
 export function extractLyricSnippet(syncedLyrics?: string): string {
   if (!syncedLyrics) return "";
   const lines = syncedLyrics.split(/\r?\n/);

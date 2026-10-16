@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { parseLrcWithHash } from "../src/lyrics/lrc-core.js";
 import { exactSyncedCandidates, exactSyncedCandidatesForArtists, lyricFocusAt, mixReplayWindow, playbackPositionAt, playbackTrackPositionAt, specialVideoKind, titleLookupKeyword, titleMentionedCandidates, titleSearchQueries, type PlaybackReport } from "../extension-ui/src/playback.js";
 
 const report = (values: Partial<PlaybackReport> = {}): PlaybackReport => ({
@@ -59,6 +60,10 @@ describe("extension playback state", () => {
       { id: 7, trackName: "And July", artistName: "Different Singer", syncedLyrics: "[00:01]other" },
     ];
     expect(exactSyncedCandidates(candidates, "And July", "Heize").map(({ id }) => id)).toEqual([1, 2, 3]);
+    const collab = [{ id: 8, trackName: "Eight", artistName: "IU, SUGA", syncedLyrics: "[00:01]line" }] as typeof candidates;
+    expect(exactSyncedCandidatesForArtists([collab], "Eight", ["IU", "SUGA"]).map(({ id }) => id)).toEqual([8]);
+    expect(exactSyncedCandidates(collab, "Eight", "SUGA").map(({ id }) => id)).toEqual([8]);
+    expect(exactSyncedCandidates(collab, "Eight", "Other")).toEqual([]);
     expect(exactSyncedCandidates(candidates, "And July feat. DEAN & DJ Friz (Live)", "Heize").map(({ id }) => id)).toEqual([4]);
   });
 
@@ -135,6 +140,11 @@ describe("lyric focus with interludes", () => {
     { text: "", startMs: 8000, endMs: 20000 },
     { text: "B", startMs: 20000, endMs: 24000 },
   ];
+
+  it("focuses the first of lines sharing a timestamp", () => {
+    const bilingual = parseLrcWithHash(["[00:05.00]안녕", "[00:05.00]Hello", "[00:09.00]다음"].join(String.fromCharCode(10)), "same-ts", "lrclib", "f".repeat(64)).lines;
+    expect(lyricFocusAt(bilingual, 6000)).toEqual({ activeIndex: 0, state: "active", gap: null });
+  });
 
   it("counts down the prelude to the first text line", () => {
     expect(lyricFocusAt(lines, 1000)).toEqual({ activeIndex: 1, state: "next", gap: { prelude: true, remainingMs: 4000 } });

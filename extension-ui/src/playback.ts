@@ -246,7 +246,7 @@ function lyricsMatcher(title: string, artists: string[]): (record: LrclibRecord)
   const expectedArtists = artists.flatMap((artist) => bilingualNameVariants(artist.normalize("NFKC").trim()).map(normalizeTrackName));
   return (record) => Boolean(record.syncedLyrics) &&
     trackTitleVariants(record.trackName).some((name) => expectedTitles.includes(normalizeTrackName(name))) &&
-    bilingualNameVariants(record.artistName.normalize("NFKC").trim()).some((name) => expectedArtists.includes(normalizeTrackName(name)));
+    creditedArtistNames(record.artistName).some((name) => expectedArtists.includes(normalizeTrackName(name)));
 }
 
 export function exactSyncedCandidates(records: LrclibRecord[], title: string, artist: string): LrclibRecord[] {

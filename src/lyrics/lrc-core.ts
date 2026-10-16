@@ -44,8 +44,8 @@ export function parseLrcWithHash(rawContent: string, trackKey: string, providerN
     parsedLines.sort((a, b) => (a.startMs ?? 0) - (b.startMs ?? 0));
     for (let index = 0; index < parsedLines.length; index += 1) {
       const current = parsedLines[index];
-      const next = parsedLines[index + 1];
-      if (current && next && next.startMs !== undefined && current.startMs !== undefined) current.endMs = next.startMs;
+      const next = current?.startMs === undefined ? undefined : parsedLines.slice(index + 1).find((line) => line.startMs !== undefined && line.startMs > current.startMs!);
+      if (current && next?.startMs !== undefined) current.endMs = next.startMs;
       else if (current?.startMs !== undefined) current.endMs = current.startMs + 4000;
     }
   }

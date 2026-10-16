@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractLyricSnippet, formatDuration, manualLyricsPrompt, parseManualLyricsInput, parseManualSelections, rankCandidateRecords } from "../extension-ui/src/manual-lyrics.js";
+import { extractLyricSnippet, formatDuration, manualLyricsPrompt, parseManualLyricsInput, parseManualSelections, parseRejectedVideoIds, rankCandidateRecords, updateManualSelections, updateRejectedVideoIds } from "../extension-ui/src/manual-lyrics.js";
 describe("manual lyrics input", () => {
   it("accepts LRCLIB links and bare ids", () => {
     const expected = { kind: "lrclib-id", id: 38664232 };
@@ -42,6 +42,32 @@ describe("manual selection storage", () => {
     expect(parsed.size).toBe(200);
     expect(parsed.has(id(0))).toBe(false);
     expect(parsed.get(id(200))).toBe(201);
+  });
+
+  it("applies a single change onto the latest stored selections", () => {
+    const stored = [["ztrjnlK2cik", 1], ["abcdefghijk", 2]];
+    expect(updateManualSelections(stored, "newVideo123", 9)).toEqual(new Map([["ztrjnlK2cik", 1], ["abcdefghijk", 2], ["newVideo123", 9]]));
+    expect(updateManualSelections(stored, "ztrjnlK2cik", 5)).toEqual(new Map([["abcdefghijk", 2], ["ztrjnlK2cik", 5]]));
+    expect(updateManualSelections(stored, "ztrjnlK2cik", null)).toEqual(new Map([["abcdefghijk", 2]]));
+    expect(updateManualSelections(undefined, "ztrjnlK2cik", null)).toEqual(new Map());
+    const full = Array.from({ length: 200 }, (_, index) => [`v${String(index).padStart(10, "0")}`, index + 1]);
+    const updated = updateManualSelections(full, "newVideo123", 999);
+    expect(updated.size).toBe(200);
+    expect(updated.has("v0000000000")).toBe(false);
+    expect(updated.get("newVideo123")).toBe(999);
+  });
+
+  it("applies a single change onto the latest rejected video ids", () => {
+    expect(parseRejectedVideoIds(["ztrjnlK2cik", "bad", 3])).toEqual(["ztrjnlK2cik"]);
+    expect(parseRejectedVideoIds("nope")).toEqual([]);
+    expect(updateRejectedVideoIds(["ztrjnlK2cik"], "abcdefghijk", true)).toEqual(["ztrjnlK2cik", "abcdefghijk"]);
+    expect(updateRejectedVideoIds(["ztrjnlK2cik", "abcdefghijk"], "ztrjnlK2cik", false)).toEqual(["abcdefghijk"]);
+    expect(updateRejectedVideoIds(["ztrjnlK2cik"], "ztrjnlK2cik", true)).toEqual(["ztrjnlK2cik"]);
+    const full = Array.from({ length: 200 }, (_, index) => `v${String(index).padStart(10, "0")}`);
+    const updated = updateRejectedVideoIds(full, "newVideo123", true);
+    expect(updated).toHaveLength(200);
+    expect(updated[0]).toBe("v0000000001");
+    expect(updated.at(-1)).toBe("newVideo123");
   });
 });
 

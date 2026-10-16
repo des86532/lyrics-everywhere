@@ -7,7 +7,26 @@ import {
   MAX_LYRIC_OFFSET_MS,
   nudgeLyricOffset,
   parseLyricOffset,
+  parseLyricTimingCorrections,
+  updateLyricTimingCorrections,
 } from "../extension-ui/src/lyric-timing.js";
+
+describe("stored lyric timing corrections", () => {
+  const keyA = `abcdefghijk:${"a".repeat(64)}`;
+  const keyB = `ztrjnlK2cik:${"b".repeat(64)}`;
+
+  it("keeps only valid entries", () => {
+    expect(parseLyricTimingCorrections({ [keyA]: 1500, bad: 1, [keyB]: 0 })).toEqual({ [keyA]: 1500 });
+    expect(parseLyricTimingCorrections([1])).toEqual({});
+    expect(parseLyricTimingCorrections(null)).toEqual({});
+  });
+
+  it("applies one change onto the latest stored value without dropping other panels' entries", () => {
+    expect(updateLyricTimingCorrections({ [keyA]: 1500 }, keyB, -2000)).toEqual({ [keyA]: 1500, [keyB]: -2000 });
+    expect(updateLyricTimingCorrections({ [keyA]: 1500, [keyB]: 1 }, keyA, 0)).toEqual({ [keyB]: 1 });
+    expect(updateLyricTimingCorrections(undefined, keyA, 500)).toEqual({ [keyA]: 500 });
+  });
+});
 
 describe("per-video lyric timing offset", () => {
   describe("lyricPositionForVideo", () => {
